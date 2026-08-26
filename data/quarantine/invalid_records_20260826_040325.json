@@ -1,0 +1,16 @@
+[
+    {
+        "record": {
+            "datetime": null,
+            "close": "231.20"
+        },
+        "reason": "Missing fields: ['datetime']"
+    },
+    {
+        "record": {
+            "datetime": "2026-08-26",
+            "close": "ERROR"
+        },
+        "reason": "Invalid close price"
+    }
+]

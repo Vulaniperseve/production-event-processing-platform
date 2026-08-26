@@ -1,10 +1,12 @@
 import requests
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 
 from config.settings import API_KEY, BASE_URL
 from src.extractors.base_extractor import BaseExtractor
+from src.logger import logger
 
 
 class TwelveDataExtractor(BaseExtractor):
@@ -14,6 +16,11 @@ class TwelveDataExtractor(BaseExtractor):
 
     def extract(self, symbol="AAPL", interval="1day", outputsize=10):
 
+        logger.info(
+            f"Starting extraction: symbol={symbol}, "
+            f"interval={interval}, outputsize={outputsize}"
+        )
+
         params = {
             "symbol": symbol,
             "interval": interval,
@@ -21,30 +28,67 @@ class TwelveDataExtractor(BaseExtractor):
             "apikey": API_KEY
         }
 
-        try:
-            response = requests.get(self.endpoint, params=params, timeout=10)
-            response.raise_for_status()
+        max_attempts = 3
 
-            data = response.json()
+        for attempt in range(1, max_attempts + 1):
 
-            # Create raw data folder if it doesn't exist
-            Path("data/raw").mkdir(parents=True, exist_ok=True)
+            try:
 
-            # Save raw JSON
-            filename = datetime.now().strftime(
-                f"data/raw/{symbol}_%Y%m%d_%H%M%S.json"
-            )
+                logger.info(
+                    f"API request attempt {attempt}/{max_attempts}"
+                )
 
-            with open(filename, "w") as file:
-                json.dump(data, file, indent=4)
+                response = requests.get(
+                    self.endpoint,
+                    params=params,
+                    timeout=10
+                )
 
-            print("Data successfully extracted.")
-            print(f"Saved to: {filename}")
+                response.raise_for_status()
 
-            return data
+                data = response.json()
 
-        except requests.exceptions.RequestException as e:
-            print("Extraction failed.")
-            print(e)
+                logger.info("API request successful.")
 
-            return None
+                break
+
+            except requests.exceptions.RequestException as e:
+
+                logger.warning(
+                    f"API request attempt {attempt} failed: {e}"
+                )
+
+                if attempt == max_attempts:
+
+                    logger.error(
+                        "Maximum API retry attempts reached."
+                    )
+
+                    raise
+
+                wait_time = 2 ** attempt
+
+                logger.info(
+                    f"Retrying API request in {wait_time} seconds."
+                )
+
+                time.sleep(wait_time)
+
+        # Create raw data folder if it doesn't exist
+        Path("data/raw").mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+        # Save raw JSON
+        filename = datetime.now().strftime(
+            f"data/raw/{symbol}_%Y%m%d_%H%M%S.json"
+        )
+
+        with open(filename, "w") as file:
+            json.dump(data, file, indent=4)
+
+        logger.info("Data successfully extracted.")
+        logger.info(f"Saved to: {filename}")
+
+        return data

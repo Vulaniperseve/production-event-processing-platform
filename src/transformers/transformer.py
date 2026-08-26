@@ -1,6 +1,9 @@
-import pandas as pd
-import uuid
+import hashlib
 from pathlib import Path
+
+import pandas as pd
+
+from src.logger import logger
 
 
 class DataTransformer:
@@ -8,13 +11,11 @@ class DataTransformer:
     @staticmethod
     def transform(data):
 
+        logger.info("Starting data transformation.")
+
         values = data["values"]
 
         df = pd.DataFrame(values)
-
-        df["event_id"] = [
-            str(uuid.uuid4()) for _ in range(len(df))
-        ]
 
         df["entity_id"] = data["meta"]["symbol"]
 
@@ -28,6 +29,16 @@ class DataTransformer:
                 "close": "value"
             },
             inplace=True
+        )
+
+        # Create deterministic event IDs
+        df["event_id"] = df.apply(
+            lambda row: hashlib.sha256(
+                f"{row['entity_id']}|"
+                f"{row['event_time']}|"
+                f"{row['event_type']}".encode()
+            ).hexdigest()[:36],
+            axis=1
         )
 
         columns = [
@@ -51,6 +62,9 @@ class DataTransformer:
             index=False
         )
 
-        print("✓ Data transformed successfully.")
+        logger.info(
+            f"Data transformation successful. "
+            f"Records transformed: {len(df)}"
+        )
 
         return df
