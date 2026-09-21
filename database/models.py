@@ -7,12 +7,12 @@ from sqlalchemy import (
     Float
 )
 
-from sqlalchemy.orm import DeclarativeBase
+
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 
 
-class Base(DeclarativeBase):
-    pass
+Base = declarative_base()
 
 
 class RawAPIEvent(Base):
