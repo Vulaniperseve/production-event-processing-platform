@@ -2,10 +2,13 @@ from database.database import engine
 from database.models import Base
 
 
+SCHEMAS = ("raw", "staging", "quarantine")
+
+
 def init_database():
     with engine.begin() as connection:
-        connection.exec_driver_sql("CREATE SCHEMA IF NOT EXISTS raw")
-        connection.exec_driver_sql("CREATE SCHEMA IF NOT EXISTS staging")
+        for schema in SCHEMAS:
+            connection.exec_driver_sql(f"CREATE SCHEMA IF NOT EXISTS {schema}")
 
     Base.metadata.create_all(bind=engine)
 

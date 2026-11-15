@@ -1,87 +1,34 @@
-from src.extractors.twelve_data_extractor import TwelveDataExtractor
+"""
+Run the pipeline locally (without Airflow):
 
-from src.validators.validator import DataValidator
-from src.validators.quarantine import QuarantineHandler
+    python main.py            # default symbol AAPL
+    python main.py MSFT
+"""
 
-from src.transformers.transformer import DataTransformer
+import sys
 
-from src.loaders.postgres_loader import PostgresLoader
+from src.pipeline.steps import run_pipeline
 
 
 def main():
 
-    # --------------------------------------------------
-    # 1. EXTRACT
-    # --------------------------------------------------
+    symbol = sys.argv[1] if len(sys.argv) > 1 else "AAPL"
 
-    extractor = TwelveDataExtractor()
+    result = run_pipeline(symbol=symbol)
 
-    data = extractor.extract()
+    validation = result["validation"]
+    load = result["load"]
 
+    print("\nPipeline completed.")
+    print(f"  raw_event_id : {validation['raw_event_id']}")
+    print(f"  valid        : {validation['valid_count']}")
+    print(f"  quarantined  : {validation['invalid_count']}")
 
-    # --------------------------------------------------
-    # 2. STRUCTURE VALIDATION
-    # --------------------------------------------------
-
-    DataValidator.validate_structure(data)
-
-
-    # --------------------------------------------------
-    # 3. RECORD-LEVEL DATA QUALITY VALIDATION
-    # --------------------------------------------------
-
-    valid_records, invalid_records = (
-        DataValidator.validate_records(data)
-    )
-
-
-    # --------------------------------------------------
-    # 4. QUARANTINE INVALID RECORDS
-    # --------------------------------------------------
-
-    QuarantineHandler.save(invalid_records)
-
-
-    # --------------------------------------------------
-    # 5. STOP IF NO VALID DATA
-    # --------------------------------------------------
-
-    if not valid_records:
-
-        print("No valid records available for processing.")
-
-        return
-
-
-    # --------------------------------------------------
-    # 6. TRANSFORM VALID DATA
-    # --------------------------------------------------
-
-    validated_data = {
-        "meta": data["meta"],
-        "status": data["status"],
-        "values": valid_records
-    }
-
-    df = DataTransformer.transform(validated_data)
-
-
-    # --------------------------------------------------
-    # 7. LOAD INTO POSTGRESQL
-    # --------------------------------------------------
-
-    PostgresLoader.load(df)
-
-
-    # --------------------------------------------------
-    # 8. DISPLAY SAMPLE
-    # --------------------------------------------------
-
-    print("\nPipeline completed successfully.")
-
-    print("\nSample processed records:")
-
-    print(df.head())
+    if load is None:
+        print("  No valid records were loaded.")
+    else:
+        print(f"  inserted     : {load['inserted']}")
+        print(f"  duplicates   : {load['skipped']}")
 
 
 if __name__ == "__main__":
