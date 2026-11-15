@@ -1,19 +1,24 @@
 """
 Production market event pipeline.
 
-    extract_to_raw ──> validate_raw ──> transform_and_load_staging
+    get_symbols ─> extract_to_raw[n] ─> validate_raw[n] ─> transform_and_load_staging[n] ─> refresh_analytics
 
-* The API is called ONCE, in extract_to_raw. The response is stored in
-  raw.raw_api_events and only its raw_event_id (an int) goes through XCom.
-* Downstream tasks read the payload from the raw layer, so retries and
-  manual reruns never hit the API again and every task sees the same data.
+* Dynamic task mapping: one extract/validate/load instance per symbol,
+  created at runtime from the `symbols` param. Each instance retries on
+  its own, and the Grid view shows each symbol separately.
+* The API is called ONCE per symbol, in extract_to_raw. The response is
+  stored in raw.raw_api_events and only its raw_event_id (an int) goes
+  through XCom. Downstream tasks read the payload from the raw layer, so
+  retries never hit the API again and every task sees the same data.
 * Structurally invalid responses fail fast (no pointless retries).
-* If no records pass validation, the load task is skipped, not failed.
+* refresh_analytics runs once at the end even if a symbol failed
+  (trigger_rule=all_done): the refresh is idempotent and the other
+  symbols' new data should still reach the analytics layer.
 """
 
 from datetime import datetime, timedelta
 
-from airflow.exceptions import AirflowFailException, AirflowSkipException
+from airflow.exceptions import AirflowFailException
 from airflow.sdk import Param, dag, task
 
 
@@ -29,28 +34,41 @@ default_args = {
 @dag(
     dag_id="production_event_pipeline",
     default_args=default_args,
-    description="Production market event processing pipeline (raw -> validate -> staging)",
+    description="Market events: raw -> validate -> staging -> analytics",
     start_date=datetime(2026, 1, 1),
     schedule="0 6 * * *",
     catchup=False,
     max_active_runs=1,
     params={
-        "symbol": Param("AAPL", type="string"),
+        "symbols": Param(
+            ["AAPL", "MSFT", "GOOGL"],
+            type="array",
+            items={"type": "string"},
+            minItems=1,
+            maxItems=8,  # Twelve Data free tier: 8 requests per minute
+        ),
         "interval": Param("1day", type="string"),
-        "outputsize": Param(10, type="integer", minimum=1, maximum=5000),
+        # Credits are charged per request, not per row, so fetching 100
+        # days costs the same as 10. Overlap is deduplicated in staging.
+        "outputsize": Param(100, type="integer", minimum=1, maximum=5000),
     },
-    tags=["production", "market-data", "etl"],
+    tags=["production", "market-data", "etl", "analytics"],
 )
 def production_event_pipeline():
 
-    @task(task_id="extract_to_raw")
-    def extract_to_raw(**context):
+    @task(task_id="get_symbols")
+    def get_symbols(**context):
+        symbols = [s.strip().upper() for s in context["params"]["symbols"] if s.strip()]
+        return sorted(set(symbols))
+
+    @task(task_id="extract_to_raw", map_index_template="{{ task.op_kwargs['symbol'] }}")
+    def extract_to_raw(symbol: str, **context):
         from src.pipeline.steps import extract_to_raw as extract_step
 
         params = context["params"]
 
         return extract_step(
-            symbol=params["symbol"],
+            symbol=symbol,
             interval=params["interval"],
             outputsize=params["outputsize"],
         )
@@ -60,16 +78,14 @@ def production_event_pipeline():
         from src.pipeline.steps import StructureValidationError, validate_raw as validate_step
 
         try:
-            summary = validate_step(raw_event_id)
+            validate_step(raw_event_id)
         except StructureValidationError as e:
             # Bad API response structure: retrying will not fix it.
             raise AirflowFailException(f"Invalid API response structure: {e}") from e
 
-        if summary["valid_count"] == 0:
-            raise AirflowSkipException(
-                f"raw_event_id={raw_event_id}: all records quarantined, nothing to load."
-            )
-
+        # If every record was quarantined, the load step records
+        # NO_VALID_RECORDS and loads nothing (no skip needed, which keeps
+        # the mapped instances aligned).
         return raw_event_id
 
     @task(task_id="transform_and_load_staging")
@@ -78,7 +94,17 @@ def production_event_pipeline():
 
         return load_step(raw_event_id)
 
-    transform_and_load(validate_raw(extract_to_raw()))
+    @task(task_id="refresh_analytics", trigger_rule="all_done")
+    def refresh_analytics():
+        from src.analytics.analytics import refresh_analytics as refresh_step
+
+        return refresh_step()
+
+    raw_ids = extract_to_raw.expand(symbol=get_symbols())
+    validated = validate_raw.expand(raw_event_id=raw_ids)
+    loaded = transform_and_load.expand(raw_event_id=validated)
+
+    loaded >> refresh_analytics()
 
 
 production_event_pipeline()

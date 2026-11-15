@@ -2,9 +2,11 @@
 
 import json
 
+from database.migrate import apply_migrations
 from database.models import Base
 from tests.integration.helpers import (
     SCHEMAS,
+    migration_files,
     drop_schemas,
     query,
     run_migration,
@@ -14,14 +16,37 @@ from tests.integration.helpers import (
 )
 
 
-def test_migration_is_idempotent(clean_db):
-    """Running the migration again on an up-to-date database changes nothing."""
+def test_runner_records_versions_and_skips_applied(clean_db):
+    versions = [row[0] for row in query(
+        clean_db, "SELECT version FROM public.schema_migrations ORDER BY version"
+    )]
+    assert versions == [path.stem for path in migration_files()]
+    assert versions[:2] == ["001_raw_layer_lineage", "002_analytics_layer"]
+
+    assert run_migration(clean_db) == []  # nothing pending
+
+
+def test_runner_warns_when_applied_migration_was_edited(clean_db):
+    run_sql_script(clean_db, "UPDATE public.schema_migrations SET checksum = 'x'")
+
+    messages = []
+    apply_migrations(clean_db, log=messages.append)
+
+    assert any("modified after it was applied" in m for m in messages)
+
+
+def test_every_migration_script_is_idempotent(clean_db):
+    """Re-executing each script directly (bypassing the runner) changes nothing."""
     before = table_columns(clean_db)
 
-    run_migration(clean_db)
-    run_migration(clean_db)
+    for path in migration_files():
+        run_sql_script(clean_db, path.read_text(encoding="utf-8"))
 
     assert table_columns(clean_db) == before
+    assert scalar(
+        clean_db,
+        "SELECT count(*) FROM information_schema.views WHERE table_schema = 'analytics'",
+    ) == 5
 
 
 def test_migration_upgrades_legacy_schema_and_keeps_data(engine):

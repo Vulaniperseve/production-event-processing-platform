@@ -1,18 +1,18 @@
+"""
+Create or upgrade the database schema.
+
+The SQL migrations in database/migrations/ are the single source of truth.
+(The SQLAlchemy models must match them; tests/integration checks for drift.)
+"""
+
 from database.database import engine
-from database.models import Base
-
-
-SCHEMAS = ("raw", "staging", "quarantine")
+from database.migrate import apply_migrations
 
 
 def init_database():
-    with engine.begin() as connection:
-        for schema in SCHEMAS:
-            connection.exec_driver_sql(f"CREATE SCHEMA IF NOT EXISTS {schema}")
-
-    Base.metadata.create_all(bind=engine)
+    return apply_migrations(engine)
 
 
 if __name__ == "__main__":
     init_database()
-    print("Database schemas and tables initialized successfully.")
+    print("Database schema is up to date.")

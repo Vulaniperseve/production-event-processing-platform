@@ -31,6 +31,20 @@ def test_empty_values_fails(api_payload):
         DataValidator.validate_structure(api_payload)
 
 
+@pytest.mark.parametrize("close", ["0", "-5.20", "nan", "inf"])
+def test_non_positive_or_non_finite_price_is_quarantined(close):
+    payload = {
+        "meta": {"symbol": "AAPL"},
+        "status": "ok",
+        "values": [{"datetime": "2026-08-26", "close": close}],
+    }
+
+    valid, invalid = DataValidator.validate_records(payload)
+
+    assert valid == []
+    assert invalid[0]["reason"] == "Non-positive or non-finite close price"
+
+
 def test_record_validation_splits_good_and_bad(api_payload):
     valid, invalid = DataValidator.validate_records(api_payload)
 

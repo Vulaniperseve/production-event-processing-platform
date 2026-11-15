@@ -6,8 +6,8 @@
 --   quarantine  records that failed validation, linked to raw
 --   staging     cleaned, deduplicated events, linked to raw
 --
--- New database:      python -m database.init_db
--- Existing database: database/migrations/001_raw_layer_lineage.sql
+-- Apply all migrations: python -m database.migrate  (analytics views: 002)
+-- Source of truth: database/migrations/ (this file mirrors the tables only)
 -- ======================================================================
 
 CREATE SCHEMA IF NOT EXISTS raw;

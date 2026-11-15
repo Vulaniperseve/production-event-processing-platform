@@ -1,3 +1,5 @@
+import math
+
 import pandas as pd
 
 from src.logger import logger
@@ -100,13 +102,24 @@ class DataValidator:
             # Validate numeric close price
             try:
 
-                float(record["close"])
+                close = float(record["close"])
 
             except (TypeError, ValueError):
 
                 invalid_records.append({
                     "record": record,
                     "reason": "Invalid close price"
+                })
+
+                continue
+
+            # A traded price must be a positive, finite number
+            # (rejects 0, negatives, "nan" and "inf", which float() accepts)
+            if not math.isfinite(close) or close <= 0:
+
+                invalid_records.append({
+                    "record": record,
+                    "reason": "Non-positive or non-finite close price"
                 })
 
                 continue
