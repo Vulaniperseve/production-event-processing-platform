@@ -1,0 +1,54 @@
+# Continuous Integration
+#
+# Runs on every push and pull request to main:
+#   1. installs the pinned dependencies on a clean Linux machine
+#   2. checks that every Python file (including the Airflow DAG) compiles
+#   3. runs the pytest suite
+#
+# Python 3.12 matches the apache/airflow:3.1.0 image the pipeline runs on.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:   # allows a manual run from the Actions tab
+
+# Least privilege: this workflow only needs to read the repository.
+permissions:
+  contents: read
+
+# A newer push to the same branch cancels the run that is still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile check (src, database, config, DAGs)
+        run: python -m compileall -q src database config airflow/dags main.py
+
+      - name: Run tests
+        run: python -m pytest -v

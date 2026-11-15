@@ -1,5 +1,7 @@
 # Current Pipeline Architecture
 
+[![CI](https://github.com/Vulaniperseve/production-event-processing-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Vulaniperseve/production-event-processing-platform/actions/workflows/ci.yml)
+
 The Production Event Processing Platform is being developed as a production-oriented data engineering pipeline for ingesting, validating, transforming, and loading market event data.
 
 ## Pipeline Flow
