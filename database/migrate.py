@@ -25,6 +25,15 @@ CREATE TABLE IF NOT EXISTS public.schema_migrations (
 """
 
 
+def checksum_of(sql):
+    """
+    SHA-256 of the script with line endings normalised, so a Windows
+    checkout (CRLF) and a Linux one (LF) of the same file agree.
+    """
+    normalised = sql.replace("\r\n", "\n")
+    return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
+
+
 def migration_files():
     return sorted(MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql"))
 
@@ -62,7 +71,7 @@ def apply_migrations(engine, log=print):
     for path in migration_files():
         version = path.stem
         sql = path.read_text(encoding="utf-8")
-        checksum = hashlib.sha256(sql.encode("utf-8")).hexdigest()
+        checksum = checksum_of(sql)
 
         if version in done:
             if done[version] != checksum:
