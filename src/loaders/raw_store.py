@@ -1,6 +1,6 @@
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from database.database import SessionLocal
 from database.models import RawAPIEvent, RawStatus
@@ -99,7 +99,8 @@ class RawStore:
 
             raw_event.processing_status = status
             raw_event.error_message = error_message
-            raw_event.processed_at = datetime.utcnow()
+            # naive UTC, matching the TIMESTAMP (without time zone) column
+            raw_event.processed_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
             session.commit()
 
