@@ -5,3 +5,5 @@ __pycache__/
 .pytest_cache/
 .vscode/
 logs/
+# Data lake output (regenerated from the raw layer)
+data/lake/

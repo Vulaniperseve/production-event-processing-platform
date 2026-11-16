@@ -76,6 +76,11 @@ x-airflow-common:
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
     PYTHONPATH: "/opt/airflow/project"
+    # Data lake (bronze / silver / gold), bind-mounted to ../data/lake
+    LAKE_ROOT: "/opt/airflow/lake"
+    # Spark local mode, sized for a small machine (one Spark JVM at a time)
+    SPARK_MASTER: "local[2]"
+    SPARK_DRIVER_MEMORY: "1g"
     # yamllint disable rule:line-length
     # Use simple http server on scheduler for health checks
     # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server
@@ -95,6 +100,10 @@ x-airflow-common:
   - ..\src:/opt/airflow/project/src
   - ..\config:/opt/airflow/project/config
   - ..\database:/opt/airflow/project/database
+  - ../data/lake:/opt/airflow/lake
+  # tests mounted read-only so the Spark suite can run inside the image
+  - ../tests:/opt/airflow/project/tests:ro
+  - ../pytest.ini:/opt/airflow/project/pytest.ini:ro
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on

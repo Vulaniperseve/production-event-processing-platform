@@ -1,0 +1,4 @@
+# Spark / data lake dependencies (installed in the Airflow image and the CI
+# Spark job). Kept separate from requirements.txt so the lightweight jobs do
+# not download ~400 MB of PySpark. Requires Java 17+.
+pyspark==4.1.4

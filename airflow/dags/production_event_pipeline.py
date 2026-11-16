@@ -2,6 +2,8 @@
 Production market event pipeline.
 
     get_symbols ─> extract_to_raw[n] ─> validate_raw[n] ─> transform_and_load_staging[n] ─> refresh_analytics
+                                                                                              │
+                                                    Asset "market_events_staging" ─> market_data_lakehouse DAG
 
 * Dynamic task mapping: one extract/validate/load instance per symbol,
   created at runtime from the `symbols` param. Each instance retries on
@@ -19,7 +21,10 @@ Production market event pipeline.
 from datetime import datetime, timedelta
 
 from airflow.exceptions import AirflowFailException
-from airflow.sdk import Param, dag, task
+from airflow.sdk import Asset, Param, dag, task
+
+# Updated by this DAG; consumed by the market_data_lakehouse DAG
+STAGING_ASSET = Asset("market_events_staging")
 
 
 default_args = {
@@ -94,7 +99,8 @@ def production_event_pipeline():
 
         return load_step(raw_event_id)
 
-    @task(task_id="refresh_analytics", trigger_rule="all_done")
+    # Emitting the Asset event triggers the market_data_lakehouse DAG.
+    @task(task_id="refresh_analytics", trigger_rule="all_done", outlets=[STAGING_ASSET])
     def refresh_analytics():
         from src.analytics.analytics import refresh_analytics as refresh_step
 
