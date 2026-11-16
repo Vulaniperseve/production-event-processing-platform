@@ -5,6 +5,7 @@ Run lake jobs by hand (Airflow runs them via the lakehouse DAG):
     python -m src.lake.run silver [--full-refresh]
     python -m src.lake.run gold
     python -m src.lake.run all [--full-refresh]
+    python -m src.lake.run publish [--dry-run]     (needs LAKE_S3_BUCKET)
 """
 
 import argparse
@@ -12,9 +13,11 @@ import argparse
 
 def main():
     parser = argparse.ArgumentParser(description="Market data lake jobs")
-    parser.add_argument("stage", choices=["bronze", "silver", "gold", "all"])
+    parser.add_argument("stage", choices=["bronze", "silver", "gold", "all", "publish"])
     parser.add_argument("--full-refresh", action="store_true",
                         help="rebuild silver from all of bronze")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="publish: show what would change in S3 without changing it")
     args = parser.parse_args()
 
     ingest_dates = None
@@ -37,6 +40,11 @@ def main():
                 print(f"silver: {build_silver(spark, dates)}")
             if args.stage in ("gold", "all"):
                 print(f"gold: {build_gold(spark)}")
+
+    if args.stage == "publish":
+        from src.lake.s3_sync import sync_lake_to_s3
+
+        print(f"publish: {sync_lake_to_s3(dry_run=args.dry_run)}")
 
 
 if __name__ == "__main__":

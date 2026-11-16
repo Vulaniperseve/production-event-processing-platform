@@ -81,6 +81,14 @@ x-airflow-common:
     # Spark local mode, sized for a small machine (one Spark JVM at a time)
     SPARK_MASTER: "local[2]"
     SPARK_DRIVER_MEMORY: "1g"
+    # Publish the lake to S3 (phase 7). Empty LAKE_S3_BUCKET = local only.
+    # Credentials come from airflow/.env (never committed): the access key of
+    # the least-privilege IAM user created by infra/terraform.
+    LAKE_S3_BUCKET: ${LAKE_S3_BUCKET:-}
+    LAKE_S3_PREFIX: lake
+    AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-eu-west-1}
+    AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+    AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
     # yamllint disable rule:line-length
     # Use simple http server on scheduler for health checks
     # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server

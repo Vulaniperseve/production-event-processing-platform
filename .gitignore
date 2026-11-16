@@ -7,3 +7,9 @@ __pycache__/
 logs/
 # Data lake output (regenerated from the raw layer)
 data/lake/
+
+# Terraform: local state, provider cache and real variable values
+infra/terraform/.terraform/
+*.tfstate
+*.tfstate.*
+infra/terraform/terraform.tfvars

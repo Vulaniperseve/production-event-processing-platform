@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Vulaniperseve/production-event-processing-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Vulaniperseve/production-event-processing-platform/actions/workflows/ci.yml)
 
-A production-oriented data engineering platform that ingests market data from a REST API, preserves every raw response, validates and quarantines bad records, loads clean events idempotently into PostgreSQL, builds an SQL analytics layer, and runs a Spark **Bronze → Silver → Gold** data lake in Parquet. Apache Airflow orchestrates it in Docker, and every change runs unit, integration and Spark tests in GitHub Actions.
+A production-oriented data engineering platform that ingests market data from a REST API, preserves every raw response, validates and quarantines bad records, loads clean events idempotently into PostgreSQL, builds an SQL analytics layer, and runs a Spark **Bronze → Silver → Gold** data lake in Parquet, published to **Amazon S3** and queryable with **Athena** (infrastructure as code with Terraform). Apache Airflow orchestrates it in Docker, and every change runs unit, integration and Spark tests in GitHub Actions.
 
 ## Architecture
 
@@ -41,6 +41,9 @@ Twelve Data REST API
 │ GOLD    gold/daily_metrics/symbol=…   gold/monthly_summary                  │
 │         gold/return_correlation                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
+        │  publish_to_s3 (incremental sync)
+        ▼
+  s3://<project>-lake-<account>/lake/{bronze,silver,gold}/  ──►  Glue Data Catalog  ──►  Athena SQL
 ```
 
 ## Airflow DAG: `production_event_pipeline`
@@ -59,11 +62,12 @@ get_symbols ─► extract_to_raw[n] ─► validate_raw[n] ─► transform_and
 ## Airflow DAG: `market_data_lakehouse`
 
 ```text
-land_bronze ─► build_silver (Spark) ─► build_gold (Spark)
+land_bronze ─► build_silver (Spark) ─► build_gold (Spark) ─► publish_to_s3
 ```
 
 - **Data-aware scheduling:** `schedule=[Asset("market_events_staging")]`. It runs whenever ingestion updates staging, not on a guessed cron time, and a Spark failure never blocks ingestion.
 - **Incremental:** `land_bronze` copies only responses not yet in the lake (set difference of ids, not a max-id watermark, which can skip rows committed out of order). `build_silver` processes only the newly landed ingest dates and rewrites only the affected `(symbol, trade_month)` partitions. Trigger with `{"full_refresh": true}` to rebuild from all of bronze.
+- **`publish_to_s3`** runs with `trigger_rule="none_failed"`: even when there was nothing new to build, it re-checks S3, so a publish that failed earlier catches up. It skips itself when `LAKE_S3_BUCKET` is not set, so the platform still runs fully offline.
 - **One Spark JVM at a time:** sequential tasks and `max_active_runs=1` (local mode, 1 GB driver) keep it within a small machine's memory.
 
 ## Data lake (PySpark 4.1, Parquet)
@@ -77,6 +81,43 @@ land_bronze ─► build_silver (Spark) ─► build_gold (Spark)
 Consistency between the two systems is verified: silver applies the same quality rules as the Python validator, produces the **same `event_id`s** as `staging.market_events`, and gold returns match the PostgreSQL analytics.
 
 Spark is configured for the data size: 4 shuffle partitions instead of the default 200, adaptive query execution, one file per partition (`repartition` by partition columns), and `coalesce(1)` for small gold tables.
+
+## Cloud: AWS (S3, IAM, Glue, Athena) with Terraform
+
+Spark runs locally, where compute is free. **S3 is the durable, shared copy of the lake**, and Athena queries the gold tables with serverless SQL. Everything in AWS is declared in [`infra/terraform`](infra/terraform):
+
+| Resource | Why it is configured this way |
+|---|---|
+| S3 bucket `<project>-lake-<account id>` | Public access blocked, ACLs disabled (`BucketOwnerEnforced`), SSE-S3 encryption, a bucket policy that denies non-TLS requests |
+| Versioning + lifecycle | A bad sync can be undone for 7 days, then old versions expire. Athena results expire after 7 days. There is **no** move to Infrequent Access: IA bills each object as at least 128 KB for 30 days, so for files of a few KB it costs more |
+| IAM user `…-lake-publisher` | **Least privilege**: list/get/put/delete only under `lake/`. It has no other prefix, bucket, or service. Its access key is created by hand, not by Terraform, so the secret never sits in the state file |
+| Glue tables + Athena workgroup | Gold schemas are declared in code, so no crawler (which is billed per run) is needed. **Partition projection** on `symbol` means new data needs no `MSCK REPAIR`. The workgroup enforces encrypted results and cancels any query that scans more than 100 MB |
+| AWS Budget | An email alert at 50% of a $5/month budget and when the month is forecast to go over it |
+
+**The sync** (`src/lake/s3_sync.py`) is incremental and idempotent:
+- It uploads a file only when its MD5 differs from the object's ETag. A single `PUT` with SSE-S3 makes the ETag the content MD5, and `Content-MD5` makes S3 reject corrupted uploads.
+- It deletes objects whose local file is gone. Spark's partition overwrite renames files, so without this step Athena would count rewritten partitions twice.
+- It uploads before it deletes, so readers never see a partition with its data missing.
+- A guard refuses to run if a local layer is empty while S3 has data, so an unmounted volume can't wipe the bucket.
+
+It is tested against moto's in-memory S3 (no account, no network). Table formats such as Apache Iceberg or Delta Lake would remove the remaining window where a reader can see old and new files together; that is the next step for multi-writer use.
+
+### Deploying to AWS
+
+1. Create an AWS account, turn on MFA for the root user, and use an admin IAM identity for Terraform (not the root user).
+2. Install Terraform and the AWS CLI, and run `aws configure` with that admin identity.
+3. Run `cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars` and set `alert_email`.
+4. Run `terraform -chdir=infra/terraform init`, then `terraform -chdir=infra/terraform apply`.
+5. In the IAM console, create an access key for the `…-lake-publisher` user. Put `LAKE_S3_BUCKET` (Terraform output), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_DEFAULT_REGION` in `airflow/.env`, then run `docker compose up -d`.
+6. Run `python -m src.lake.run publish --dry-run` to preview the changes, then trigger the lakehouse DAG. Query the data in Athena with the `event-platform-lake` workgroup:
+
+```sql
+SELECT symbol, month, monthly_return
+FROM event_platform_gold.monthly_summary
+ORDER BY symbol, month;
+```
+
+At this data size (~0.3 MB), S3 storage and Athena scans cost cents per month.
 
 ## Data reliability
 
@@ -117,7 +158,8 @@ Versioned SQL migrations in `database/migrations/` are the single source of trut
 - **Unit tests** (`tests/`): validation, transformation, deterministic IDs, and the pipeline steps with in-memory fakes. No database needed.
 - **Integration tests** (`tests/integration/`): a real PostgreSQL 16 covering migrations (idempotency, legacy upgrade, ORM/SQL schema-drift check), storage, end-to-end pipeline replays, and the analytics calculations checked against hand-computed values. These tests drop schemas, so they only run with `RUN_INTEGRATION_TESTS=1` and refuse any database whose name doesn't contain `test`.
 - **Spark tests** (`tests/lake/`): silver validation and parity with the Python validator, identical event ids, latest-wins deduplication, idempotent reruns, incremental runs that leave untouched partitions' files alone, full refresh equal to incremental, and the gold calculations. They skip automatically when PySpark or Java is unavailable.
-- **GitHub Actions** runs three jobs on every push and pull request: unit tests, integration tests against a `postgres:16` service container, and Spark tests on Java 17. Python 3.12 matches the Airflow image.
+- **S3 publish tests** (`tests/test_s3_sync.py`): first sync, no-op re-sync, rewritten partitions, dry run, objects outside the prefix untouched, and the empty-layer guard, all against moto.
+- **GitHub Actions** runs four jobs on every push and pull request: unit tests, integration tests against a `postgres:16` service container, Spark tests on Java 17, and `terraform fmt` + `validate`. Python 3.12 matches the Airflow image.
 
 ## Running locally
 
@@ -151,7 +193,7 @@ RUN_INTEGRATION_TESTS=1 DB_HOST=localhost DB_PORT=5433 DB_NAME=pipeline_test \
 
 ## Tech stack
 
-Python · SQL · PostgreSQL (JSONB, window functions, materialized views) · SQLAlchemy · pandas · Apache Spark / PySpark 4.1 (DataFrames, Spark SQL) · Parquet · Apache Airflow 3 (TaskFlow, dynamic task mapping, Assets) · Docker Compose · pytest · GitHub Actions
+Python · SQL · PostgreSQL (JSONB, window functions, materialized views) · SQLAlchemy · pandas · Apache Spark / PySpark 4.1 (DataFrames, Spark SQL) · Parquet · Apache Airflow 3 (TaskFlow, dynamic task mapping, Assets) · AWS (S3, IAM, Glue Data Catalog, Athena, Budgets) · Terraform · boto3 / moto · Docker Compose · pytest · GitHub Actions
 
 ## Roadmap
 
@@ -161,7 +203,7 @@ Python · SQL · PostgreSQL (JSONB, window functions, materialized views) · SQL
 - [x] Analytics layer
 - [x] Apache Spark / PySpark
 - [x] Data lake: Bronze → Silver → Gold, Parquet and partitioning
-- [ ] Cloud deployment (AWS)
+- [x] Cloud: S3 data lake, least-privilege IAM, Athena, Terraform
 - [ ] Streaming: Kafka / Spark Structured Streaming
 - [ ] Monitoring and alerting
 - [ ] Performance benchmarking

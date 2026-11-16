@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars (git-ignored) and fill in.
+alert_email = "you@example.com"
+
+# Optional overrides:
+# region             = "af-south-1"   # Cape Town; enable the region in the account first
+# monthly_budget_usd = 5
+# symbols            = ["AAPL", "MSFT", "GOOGL"]

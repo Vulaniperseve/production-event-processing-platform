@@ -1,7 +1,7 @@
 """
 Market data lakehouse: raw PostgreSQL responses -> Bronze -> Silver -> Gold.
 
-    land_bronze ─> build_silver ─> build_gold
+    land_bronze ─> build_silver ─> build_gold ─> publish_to_s3
 
 * Data-aware scheduling: runs whenever production_event_pipeline updates the
   `market_events_staging` Asset, instead of guessing a time with cron. The two
@@ -11,10 +11,15 @@ Market data lakehouse: raw PostgreSQL responses -> Bronze -> Silver -> Gold.
   upserts just the affected Parquet partitions. Trigger with
   {"full_refresh": true} to rebuild silver from all of bronze.
 * build_gold (Spark) rebuilds the gold datasets from silver.
+* publish_to_s3 makes the S3 copy of the lake match the local one (only
+  changed files are uploaded, replaced files are deleted). It runs even when
+  silver/gold were skipped, so a publish that failed earlier catches up on
+  the next run. It skips itself when LAKE_S3_BUCKET is not set.
 * The Spark tasks run one at a time (max_active_runs=1, sequential tasks), so
   only one Spark JVM is ever alive on this machine.
 """
 
+import os
 from datetime import datetime, timedelta
 
 from airflow.exceptions import AirflowSkipException
@@ -69,7 +74,16 @@ def market_data_lakehouse():
         with spark_session("gold") as spark:
             return gold_job(spark)
 
-    build_gold(build_silver(land_bronze()))
+    @task(task_id="publish_to_s3", trigger_rule="none_failed")
+    def publish_to_s3():
+        if not os.getenv("LAKE_S3_BUCKET"):
+            raise AirflowSkipException("LAKE_S3_BUCKET is not set; the lake stays local only.")
+
+        from src.lake.s3_sync import sync_lake_to_s3
+
+        return sync_lake_to_s3()
+
+    build_gold(build_silver(land_bronze())) >> publish_to_s3()
 
 
 market_data_lakehouse()
