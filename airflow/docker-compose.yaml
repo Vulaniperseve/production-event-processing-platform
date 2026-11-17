@@ -305,5 +305,35 @@ services:
     depends_on:
       <<: *airflow-common-depends-on
 
+  # Dashboard (Streamlit): start runs, watch them live, explore the results.
+  # Reads PostgreSQL in read-only sessions and the lake from a read-only mount.
+  dashboard:
+    build:
+      context: ..
+      dockerfile: dashboard/Dockerfile
+    image: production-dashboard:1.0
+    ports:
+      - "8501:8501"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      AIRFLOW_API_URL: http://airflow-apiserver:8080
+      AIRFLOW_UI_URL: http://localhost:8080
+      AIRFLOW_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
+      AIRFLOW_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
+      LAKE_ROOT: /data/lake
+    volumes:
+      # Code mounted for live reload while developing; the image has a copy too.
+      - ../dashboard:/app/dashboard:ro
+      - ../data/lake:/data/lake:ro
+    mem_limit: 512m
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres-db-volume:

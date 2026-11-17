@@ -4,6 +4,30 @@
 
 A production-oriented data engineering platform that ingests market data from a REST API, preserves every raw response, validates and quarantines bad records, loads clean events idempotently into PostgreSQL, builds an SQL analytics layer, and runs a Spark **Bronze → Silver → Gold** data lake in Parquet, published to **Amazon S3** and queryable with **Athena** (infrastructure as code with Terraform). Apache Airflow orchestrates it in Docker, and every change runs unit, integration and Spark tests in GitHub Actions.
 
+## Quick start
+
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/), clone the repo and create `airflow/.env` (Twelve Data API key and database settings).
+2. Double-click **`start.bat`**. It starts Docker if needed, starts the platform and opens the dashboard at **http://localhost:8501**.
+3. Press **Run pipeline** and watch each stage run live, from the API to the Spark data lake.
+
+Stop everything with `stop.bat` (your data is kept).
+
+## Dashboard
+
+A Streamlit app that runs the platform and shows what it produces, without any terminal commands.
+
+| Page | What it shows |
+|---|---|
+| **Pipeline** | A **Run pipeline** button that starts the real Airflow DAG through the Airflow REST API, then an animated diagram of all 8 stages that follows the actual Airflow tasks every 5 seconds: per-symbol progress, durations, records loaded, records quarantined, and the Asset event that starts the Spark lake build. A rerun shows *0 new · 300 already stored*: idempotency, visible |
+| **Market results** | Performance of all symbols rebased to 100, price with 5- and 20-day moving averages, drawdown, daily returns, a monthly returns heatmap and a correlation matrix from the Spark gold layer |
+| **Data quality and proof** | Quarantine reasons, the raw response lifecycle, freshness, records loaded vs skipped vs quarantined per day, and a **live consistency check**: every event id in the Spark lake must exist in PostgreSQL, and period returns must agree to within 1e-9 |
+
+Design choices:
+- The dashboard opens PostgreSQL sessions with `default_transaction_read_only=on` and mounts the lake read-only, so it can't change data.
+- It talks to Airflow only through the public REST API with a JWT, never to Airflow's internal database.
+- The stage-status logic (mapped tasks, retries, skipped and blocked stages, which lake run belongs to which ingestion) is pure Python with unit tests. The pages have headless Streamlit `AppTest` smoke tests.
+- It runs as its own small image (`python:3.12-slim`, non-root user, health check, 512 MB memory limit).
+
 ## Architecture
 
 ```text
@@ -158,6 +182,7 @@ Versioned SQL migrations in `database/migrations/` are the single source of trut
 - **Unit tests** (`tests/`): validation, transformation, deterministic IDs, and the pipeline steps with in-memory fakes. No database needed.
 - **Integration tests** (`tests/integration/`): a real PostgreSQL 16 covering migrations (idempotency, legacy upgrade, ORM/SQL schema-drift check), storage, end-to-end pipeline replays, and the analytics calculations checked against hand-computed values. These tests drop schemas, so they only run with `RUN_INTEGRATION_TESTS=1` and refuse any database whose name doesn't contain `test`.
 - **Spark tests** (`tests/lake/`): silver validation and parity with the Python validator, identical event ids, latest-wins deduplication, idempotent reruns, incremental runs that leave untouched partitions' files alone, full refresh equal to incremental, and the gold calculations. They skip automatically when PySpark or Java is unavailable.
+- **Dashboard tests** (`tests/dashboard/`): stage-status aggregation, the Airflow API client (token refresh, unpause then trigger, error handling) against mocked HTTP, the lake and consistency calculations, the HTML diagram, and every page rendered headless with fake data, including a page detecting a deliberate lake/warehouse mismatch.
 - **S3 publish tests** (`tests/test_s3_sync.py`): first sync, no-op re-sync, rewritten partitions, dry run, objects outside the prefix untouched, and the empty-layer guard, all against moto.
 - **GitHub Actions** runs four jobs on every push and pull request: unit tests, integration tests against a `postgres:16` service container, Spark tests on Java 17, and `terraform fmt` + `validate`. Python 3.12 matches the Airflow image.
 
@@ -193,7 +218,7 @@ RUN_INTEGRATION_TESTS=1 DB_HOST=localhost DB_PORT=5433 DB_NAME=pipeline_test \
 
 ## Tech stack
 
-Python · SQL · PostgreSQL (JSONB, window functions, materialized views) · SQLAlchemy · pandas · Apache Spark / PySpark 4.1 (DataFrames, Spark SQL) · Parquet · Apache Airflow 3 (TaskFlow, dynamic task mapping, Assets) · AWS (S3, IAM, Glue Data Catalog, Athena, Budgets) · Terraform · boto3 / moto · Docker Compose · pytest · GitHub Actions
+Python · SQL · Streamlit · Plotly · PostgreSQL (JSONB, window functions, materialized views) · SQLAlchemy · pandas · Apache Spark / PySpark 4.1 (DataFrames, Spark SQL) · Parquet · Apache Airflow 3 (TaskFlow, dynamic task mapping, Assets) · AWS (S3, IAM, Glue Data Catalog, Athena, Budgets) · Terraform · boto3 / moto · Docker Compose · pytest · GitHub Actions
 
 ## Roadmap
 
