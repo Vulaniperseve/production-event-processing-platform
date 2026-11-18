@@ -7,6 +7,7 @@ Three pages:
   * Pipeline: start a run and watch every stage live (from the Airflow API)
   * Market results: what the data says (PostgreSQL analytics + Spark gold)
   * Data quality and proof: quarantine, freshness, warehouse vs lake checks
+  * Live stream: Kafka -> Spark Structured Streaming -> PostgreSQL, live
 """
 
 import sys
@@ -47,6 +48,8 @@ pages = [
             icon=":material/monitoring:"),
     st.Page(str(ROOT / "dashboard/views/quality.py"), title="Data quality and proof",
             icon=":material/verified:"),
+    st.Page(str(ROOT / "dashboard/views/stream.py"), title="Live stream",
+            icon=":material/sensors:"),
 ]
 nav = st.navigation(pages)
 

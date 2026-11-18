@@ -4,11 +4,14 @@ import os
 from contextlib import contextmanager
 
 
-def build_spark(app_name="market-data-lake"):
+def build_spark(app_name="market-data-lake", extra_conf=None):
     from pyspark.sql import SparkSession
 
+    builder = SparkSession.builder
+    for key, value in (extra_conf or {}).items():
+        builder = builder.config(key, value)
     return (
-        SparkSession.builder
+        builder
         .appName(app_name)
         # Local mode: driver and executor in one JVM. On a cluster (EMR,
         # Databricks) only SPARK_MASTER changes, not the job code.

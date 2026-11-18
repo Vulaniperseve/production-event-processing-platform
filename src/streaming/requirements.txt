@@ -1,0 +1,4 @@
+# Producer runtime (the producer image installs only this file).
+confluent-kafka==2.16.1
+requests==2.34.2
+tzdata==2026.3

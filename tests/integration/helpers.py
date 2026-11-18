@@ -4,7 +4,7 @@ from sqlalchemy import text
 
 from database.migrate import MIGRATIONS_DIR, apply_migrations, migration_files
 
-SCHEMAS = ("raw", "staging", "quarantine", "analytics")
+SCHEMAS = ("raw", "staging", "quarantine", "analytics", "streaming")
 TABLE_SCHEMAS = ("raw", "staging", "quarantine")
 
 

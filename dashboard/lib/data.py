@@ -255,3 +255,83 @@ def compare_returns(summary, gold_daily):
     out = pd.concat([wh, lake_ret], axis=1).reset_index(names="symbol")
     out["difference"] = (out["warehouse_return"] - out["lake_return"]).abs()
     return out
+
+
+# -------------------------------------------------------------- streaming
+def stream_available(engine):
+    """True once migration 003 has created the streaming tables."""
+    df = query(engine, "SELECT to_regclass('streaming.price_ticks') IS NOT NULL AS ok")
+    return bool(df.iloc[0]["ok"])
+
+
+def stream_overview(engine):
+    df = query(engine, """
+        WITH recent AS (
+            SELECT EXTRACT(EPOCH FROM (processed_at - produced_at)) AS latency_s
+            FROM streaming.price_ticks
+            WHERE produced_at IS NOT NULL
+            ORDER BY processed_at DESC
+            LIMIT 1000
+        )
+        SELECT
+            (SELECT COUNT(*) FROM streaming.price_ticks)                         AS ticks,
+            (SELECT COUNT(*) FROM streaming.price_ticks
+              WHERE processed_at > now() - interval '5 minutes')                 AS ticks_5m,
+            (SELECT COUNT(DISTINCT symbol) FROM streaming.price_ticks)           AS symbols,
+            -- Last batch with data, including batches of only duplicates
+            -- (those add no tick rows but show the stream is alive).
+            (SELECT MAX(processed_at) FROM streaming.batch_log
+              WHERE query_name = 'ticks' AND rows_in > 0)                        AS last_processed,
+            (SELECT COUNT(*) FROM streaming.rejected_ticks)                      AS rejected,
+            (SELECT COALESCE(SUM(duplicates), 0) FROM streaming.batch_log
+              WHERE query_name = 'ticks')                                        AS duplicates,
+            (SELECT COUNT(*) FROM streaming.batch_log WHERE query_name = 'ticks') AS batches,
+            (SELECT COUNT(*) FROM streaming.price_bars_5m)                       AS bars,
+            (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_s) FROM recent)  AS latency_p50,
+            (SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_s) FROM recent) AS latency_p95
+    """)
+    return df.iloc[0].to_dict()
+
+
+def stream_bars(engine, symbol, limit=200):
+    return query(engine, """
+        SELECT window_start, open, high, low, close, ticks, volume
+        FROM (SELECT * FROM streaming.price_bars_5m WHERE symbol = :symbol
+              ORDER BY window_start DESC LIMIT :limit) b
+        ORDER BY window_start
+    """, symbol=symbol, limit=limit)
+
+
+def stream_symbols(engine):
+    return list(query(engine, "SELECT DISTINCT symbol FROM streaming.price_bars_5m ORDER BY 1")["symbol"])
+
+
+def stream_throughput(engine, minutes=60):
+    return query(engine, """
+        SELECT date_trunc('minute', processed_at) AS minute,
+               SUM(inserted)   AS new_ticks,
+               SUM(duplicates) AS duplicates,
+               SUM(rejected)   AS rejected
+        FROM streaming.batch_log
+        WHERE query_name = 'ticks' AND processed_at > now() - make_interval(mins => :minutes)
+        GROUP BY 1 ORDER BY 1
+    """, minutes=minutes)
+
+
+def stream_latest_ticks(engine, limit=12):
+    return query(engine, """
+        SELECT symbol, event_ts, price, source, kafka_partition, kafka_offset,
+               ROUND(EXTRACT(EPOCH FROM (processed_at - produced_at))::numeric, 2) AS latency_s
+        FROM streaming.price_ticks
+        ORDER BY processed_at DESC, event_ts DESC
+        LIMIT :limit
+    """, limit=limit)
+
+
+def stream_rejects(engine, limit=20):
+    return query(engine, """
+        SELECT rejected_at, reason, kafka_partition, kafka_offset, LEFT(raw_message, 120) AS message
+        FROM streaming.rejected_ticks
+        ORDER BY rejected_at DESC
+        LIMIT :limit
+    """, limit=limit)

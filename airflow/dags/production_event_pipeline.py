@@ -31,7 +31,11 @@ default_args = {
     "owner": "data-engineering",
     "retries": 2,
     "retry_delay": timedelta(minutes=2),
-    "retry_exponential_backoff": True,
+    # Fixed delay, no exponential backoff: in Airflow 3.1.0 a *mapped* task
+    # (extract/validate/load run once per symbol) waiting to retry with
+    # exponential backoff crashes the scheduler in a loop
+    # ('MappedOperator' object has no attribute 'max_retry_delay').
+    "retry_exponential_backoff": False,
     "execution_timeout": timedelta(minutes=10),
 }
 

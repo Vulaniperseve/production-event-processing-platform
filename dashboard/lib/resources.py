@@ -87,3 +87,39 @@ def event_id_comparison():
 
 def refresh_all():
     st.cache_data.clear()
+
+
+# Streaming: short caches, the page refreshes itself while ticks arrive.
+@st.cache_data(ttl=3, show_spinner=False)
+def stream_available():
+    return data.stream_available(engine())
+
+
+@st.cache_data(ttl=3, show_spinner=False)
+def stream_overview():
+    return data.stream_overview(engine())
+
+
+@st.cache_data(ttl=3, show_spinner=False)
+def stream_bars(symbol):
+    return data.stream_bars(engine(), symbol)
+
+
+@st.cache_data(ttl=10, show_spinner=False)
+def stream_symbols():
+    return data.stream_symbols(engine())
+
+
+@st.cache_data(ttl=3, show_spinner=False)
+def stream_throughput():
+    return data.stream_throughput(engine())
+
+
+@st.cache_data(ttl=3, show_spinner=False)
+def stream_latest_ticks():
+    return data.stream_latest_ticks(engine())
+
+
+@st.cache_data(ttl=10, show_spinner=False)
+def stream_rejects():
+    return data.stream_rejects(engine())

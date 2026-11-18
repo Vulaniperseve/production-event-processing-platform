@@ -2,13 +2,15 @@
 
 [![CI](https://github.com/Vulaniperseve/production-event-processing-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Vulaniperseve/production-event-processing-platform/actions/workflows/ci.yml)
 
-A production-oriented data engineering platform that ingests market data from a REST API, preserves every raw response, validates and quarantines bad records, loads clean events idempotently into PostgreSQL, builds an SQL analytics layer, and runs a Spark **Bronze → Silver → Gold** data lake in Parquet, published to **Amazon S3** and queryable with **Athena** (infrastructure as code with Terraform). Apache Airflow orchestrates it in Docker, and every change runs unit, integration and Spark tests in GitHub Actions.
+A production-oriented data engineering platform that ingests market data from a REST API, preserves every raw response, validates and quarantines bad records, loads clean events idempotently into PostgreSQL, builds an SQL analytics layer, and streams live price ticks through **Kafka** and **Spark Structured Streaming**, runs a Spark **Bronze → Silver → Gold** data lake in Parquet, published to **Amazon S3** and queryable with **Athena** (infrastructure as code with Terraform). Apache Airflow orchestrates it in Docker, and every change runs unit, integration and Spark tests in GitHub Actions.
 
 ## Quick start
 
 1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/), clone the repo and create `airflow/.env` (Twelve Data API key and database settings).
 2. Double-click **`start.bat`**. It starts Docker if needed, starts the platform and opens the dashboard at **http://localhost:8501**.
 3. Press **Run pipeline** and watch each stage run live, from the API to the Spark data lake.
+
+Streaming (optional, needs more memory): double-click **`stream.bat`** to start Kafka and the Spark streaming job and replay a real trading day. Watch it on the dashboard's *Live stream* page.
 
 Stop everything with `stop.bat` (your data is kept).
 
@@ -20,6 +22,7 @@ A Streamlit app that runs the platform and shows what it produces, without any t
 |---|---|
 | **Pipeline** | A **Run pipeline** button that starts the real Airflow DAG through the Airflow REST API, then an animated diagram of all 8 stages that follows the actual Airflow tasks every 5 seconds: per-symbol progress, durations, records loaded, records quarantined, and the Asset event that starts the Spark lake build. A rerun shows *0 new · 300 already stored*: idempotency, visible |
 | **Market results** | Performance of all symbols rebased to 100, price with 5- and 20-day moving averages, drawdown, daily returns, a monthly returns heatmap and a correlation matrix from the Spark gold layer |
+| **Live stream** | Ticks stored, end-to-end latency (p50/p95), duplicates dropped, rejected messages, live 5-minute candlestick bars, and throughput per minute from the streaming job's batch log |
 | **Data quality and proof** | Quarantine reasons, the raw response lifecycle, freshness, records loaded vs skipped vs quarantined per day, and a **live consistency check**: every event id in the Spark lake must exist in PostgreSQL, and period returns must agree to within 1e-9 |
 
 Design choices:
@@ -143,6 +146,34 @@ ORDER BY symbol, month;
 
 At this data size (~0.3 MB), S3 storage and Athena scans cost cents per month.
 
+## Streaming: Kafka → Spark Structured Streaming → PostgreSQL
+
+```text
+producer (replay | live) ──► Kafka  market.price_ticks  (3 partitions, key = symbol, 24 h retention)
+                                   │
+                    Spark Structured Streaming (micro-batch every 5 s, offsets in a checkpoint)
+                                   │  parse + validate (same rules as the batch validator)
+             ┌─────────────────────┼──────────────────────────────┐
+             ▼                     ▼                              ▼
+ streaming.price_ticks   streaming.rejected_ticks   streaming.price_bars_5m
+ (one row per event_id)  (invalid + reason)         (event-time OHLC, 10-min watermark)
+                                   └──► streaming.batch_log (throughput, duplicates, duration)
+```
+
+| Concern | How it is handled |
+|---|---|
+| Real data, zero cost | **Replay mode** (default) fetches one trading day of real 1-minute prices once (3 API credits), caches it, and replays it in event-time order 60× faster. **Live mode** polls real prices within a daily credit budget and the free tier's 8 requests per minute |
+| Ordering | Messages are keyed by symbol, so each symbol's ticks stay in order within one partition |
+| No loss or duplication inside Kafka | Producer uses `acks=all` and `enable.idempotence=true` |
+| Exactly-once results | Spark stores Kafka offsets in a checkpoint and replays an unfinished micro-batch after a crash. Every sink is idempotent: ticks by `event_id`, rejects by Kafka partition+offset, bars by `(symbol, window)`, batch log by `(query, batch id)`. Each micro-batch is one PostgreSQL transaction |
+| Duplicates | Spark recomputes `event_id` from the message (a wrong id can't break deduplication) and drops duplicates within the watermark before aggregating, so a re-sent tick is never counted twice in a bar |
+| Late and out-of-order data | Bars are built by **event time** (when the price happened), not arrival time. A 10-minute watermark bounds the state Spark keeps |
+| Bad messages | Same validation rules as the batch pipeline (tested for parity). Invalid messages go to `streaming.rejected_ticks` with the reason instead of stopping the stream |
+| Startup order | Spark subscribes by topic pattern, so it waits for the topic instead of failing if it starts before the producer |
+| Small machine | Opt-in Compose profile; Kafka in KRaft mode (no ZooKeeper) with a 256 MB heap; Spark driver 768 MB |
+
+**Verified end to end:** one replay sent 1,170 ticks (3 symbols × 390 minutes), and all 1,170 were delivered and stored once, building 234 five-minute bars. Restarting the processor mid-stream resumed from the checkpoint. Replaying the same day again stored 0 new ticks and dropped every message as a duplicate.
+
 ## Data reliability
 
 | Concern | How it is handled |
@@ -183,6 +214,7 @@ Versioned SQL migrations in `database/migrations/` are the single source of trut
 - **Integration tests** (`tests/integration/`): a real PostgreSQL 16 covering migrations (idempotency, legacy upgrade, ORM/SQL schema-drift check), storage, end-to-end pipeline replays, and the analytics calculations checked against hand-computed values. These tests drop schemas, so they only run with `RUN_INTEGRATION_TESTS=1` and refuse any database whose name doesn't contain `test`.
 - **Spark tests** (`tests/lake/`): silver validation and parity with the Python validator, identical event ids, latest-wins deduplication, idempotent reruns, incremental runs that leave untouched partitions' files alone, full refresh equal to incremental, and the gold calculations. They skip automatically when PySpark or Java is unavailable.
 - **Dashboard tests** (`tests/dashboard/`): stage-status aggregation, the Airflow API client (token refresh, unpause then trigger, error handling) against mocked HTTP, the lake and consistency calculations, the HTML diagram, and every page rendered headless with fake data, including a page detecting a deliberate lake/warehouse mismatch.
+- **Streaming tests** (`tests/streaming/`, `tests/lake/test_stream_processor.py`, `tests/integration/test_streaming_sinks.py`): the message contract and time-zone handling (including daylight saving), replay ordering and pacing, the live-mode credit budget, Spark validation parity with the Python rules, event-time OHLC with out-of-order ticks, a full streaming run on a file source that restarts from its checkpoint and drops a re-sent duplicate, and the idempotent PostgreSQL sinks.
 - **S3 publish tests** (`tests/test_s3_sync.py`): first sync, no-op re-sync, rewritten partitions, dry run, objects outside the prefix untouched, and the empty-layer guard, all against moto.
 - **GitHub Actions** runs four jobs on every push and pull request: unit tests, integration tests against a `postgres:16` service container, Spark tests on Java 17, and `terraform fmt` + `validate`. Python 3.12 matches the Airflow image.
 
@@ -216,9 +248,18 @@ RUN_INTEGRATION_TESTS=1 DB_HOST=localhost DB_PORT=5433 DB_NAME=pipeline_test \
   DB_USER=postgres DB_PASSWORD=postgres python -m pytest -m integration
 ```
 
+## Engineering notes
+
+Problems hit while building this, and how they were solved:
+
+- **Airflow 3.1.0 scheduler crash loop.** A mapped task (one per symbol) waiting to retry with exponential backoff crashed the scheduler with `'MappedOperator' object has no attribute 'max_retry_delay'`. Traced through the Airflow source to `TaskInstance.next_retry_datetime`. The fix was a fixed retry delay instead of exponential backoff, the stuck task was cleared through the REST API, and `tests/test_dag_settings.py` keeps it from coming back.
+- **Docker Desktop wouldn't start after an unclean shutdown** (stale Unix-socket files that Windows can't delete). `start.bat` moves them aside while Docker isn't running.
+- **Counting duplicates in streaming bars.** A test showed a re-sent tick counted twice in a 5-minute bar, because deduplication happened only at the sink. The fix deduplicates within the watermark before aggregating.
+- **Time zones.** PySpark's `collect()` returns naive datetimes in the *Python process's* local time. The streaming job writes timestamps as explicit UTC strings, so results don't depend on the machine's time zone.
+
 ## Tech stack
 
-Python · SQL · Streamlit · Plotly · PostgreSQL (JSONB, window functions, materialized views) · SQLAlchemy · pandas · Apache Spark / PySpark 4.1 (DataFrames, Spark SQL) · Parquet · Apache Airflow 3 (TaskFlow, dynamic task mapping, Assets) · AWS (S3, IAM, Glue Data Catalog, Athena, Budgets) · Terraform · boto3 / moto · Docker Compose · pytest · GitHub Actions
+Python · SQL · Apache Kafka (KRaft) · Spark Structured Streaming · Streamlit · Plotly · PostgreSQL (JSONB, window functions, materialized views) · SQLAlchemy · pandas · Apache Spark / PySpark 4.1 (DataFrames, Spark SQL) · Parquet · Apache Airflow 3 (TaskFlow, dynamic task mapping, Assets) · AWS (S3, IAM, Glue Data Catalog, Athena, Budgets) · Terraform · boto3 / moto · Docker Compose · pytest · GitHub Actions
 
 ## Roadmap
 
@@ -229,6 +270,7 @@ Python · SQL · Streamlit · Plotly · PostgreSQL (JSONB, window functions, mat
 - [x] Apache Spark / PySpark
 - [x] Data lake: Bronze → Silver → Gold, Parquet and partitioning
 - [x] Cloud: S3 data lake, least-privilege IAM, Athena, Terraform
-- [ ] Streaming: Kafka / Spark Structured Streaming
+- [x] Dashboard: live pipeline view, results, data-quality proof
+- [x] Streaming: Kafka / Spark Structured Streaming
 - [ ] Monitoring and alerting
 - [ ] Performance benchmarking

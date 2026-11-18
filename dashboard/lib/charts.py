@@ -137,3 +137,26 @@ def health_chart(health):
     fig = _style(fig, 300)
     fig.update_xaxes(type="category")
     return fig
+
+
+def candlestick_chart(bars, symbol):
+    fig = go.Figure(go.Candlestick(
+        x=bars["window_start"], open=bars["open"], high=bars["high"],
+        low=bars["low"], close=bars["close"], name=symbol,
+        increasing=dict(line=dict(color=POS), fillcolor=POS),
+        decreasing=dict(line=dict(color=NEG), fillcolor=NEG),
+    ))
+    fig = _style(fig, 340, legend=False, yformat="$,.2f")
+    fig.update_layout(xaxis_rangeslider_visible=False, hovermode="x")
+    return fig
+
+
+def throughput_chart(df):
+    fig = go.Figure()
+    for col, name, color in [("new_ticks", "New ticks stored", POS),
+                             ("duplicates", "Duplicates dropped", "#b4b2a9"),
+                             ("rejected", "Rejected", "#eda100")]:
+        fig.add_trace(go.Bar(x=df["minute"], y=df[col], name=name, marker_color=color,
+                             hovertemplate="%{y:,}"))
+    fig.update_layout(barmode="stack", bargap=0.3)
+    return _style(fig, 220)

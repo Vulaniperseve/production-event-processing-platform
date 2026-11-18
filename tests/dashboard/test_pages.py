@@ -119,6 +119,23 @@ def fakes(monkeypatch):
                                              "already_present": 0, "responses_loaded": 2,
                                              "responses_failed": 0},
     }
+    stream_bars = pd.DataFrame({"window_start": pd.date_range("2026-11-17 14:30", periods=4, freq="5min", tz="UTC"),
+                                "open": [1.0, 2, 3, 4], "high": [2.0, 3, 4, 5], "low": [0.5, 1, 2, 3],
+                                "close": [2.0, 3, 4, 5], "ticks": [5, 5, 5, 5], "volume": [10, 10, 10, 10]})
+    patches.update({
+        "stream_available": lambda: True,
+        "stream_overview": lambda: {"ticks": 20, "ticks_5m": 20, "symbols": 2,
+                                    "last_processed": pd.Timestamp.now(tz="UTC"), "rejected": 1,
+                                    "duplicates": 20, "batches": 4, "bars": 4,
+                                    "latency_p50": 5.4, "latency_p95": 7.9},
+        "stream_symbols": lambda: SYMBOLS,
+        "stream_bars": lambda symbol: stream_bars,
+        "stream_throughput": lambda: pd.DataFrame({"minute": pd.date_range("2026-11-18", periods=2, freq="1min"),
+                                                   "new_ticks": [10, 10], "duplicates": [0, 20],
+                                                   "rejected": [1, 0]}),
+        "stream_latest_ticks": lambda: pd.DataFrame({"symbol": ["AAPL"], "price": [1.0]}),
+        "stream_rejects": lambda: pd.DataFrame({"reason": ["Malformed JSON"]}),
+    })
     for name, fn in patches.items():
         monkeypatch.setattr(resources, name, fn)
     return airflow
@@ -168,3 +185,17 @@ def test_quality_page_flags_a_mismatch(fakes, monkeypatch):
     at = run_page("quality")
     assert not at.exception
     assert any("differ" in w.value for w in at.warning)
+
+
+def test_stream_page_renders_live_data(fakes):
+    at = run_page("stream")
+    assert not at.exception
+    assert any("Receiving ticks" in s.value for s in at.success)
+    assert [m.value for m in at.metric][:2] == ["20", "20"]
+
+
+def test_stream_page_explains_how_to_start_when_not_set_up(fakes, monkeypatch):
+    monkeypatch.setattr(resources, "stream_available", lambda: False)
+    at = run_page("stream")
+    assert not at.exception
+    assert any("stream.bat" in i.value for i in at.info)

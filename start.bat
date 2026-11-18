@@ -78,5 +78,13 @@ echo    Dashboard  http://localhost:8501
 echo    Airflow    http://localhost:8080   (user: airflow)
 echo.
 echo  To stop everything later, double-click stop.bat
-start "" http://localhost:8501
+rem Open the dashboard in its own app window (Microsoft Edge ships with
+rem Windows); fall back to the default browser if Edge isn't there.
+set "EDGE=%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"
+if not exist "%EDGE%" set "EDGE=%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
+if exist "%EDGE%" (
+    start "" "%EDGE%" --app=http://localhost:8501 --window-size=1400,900
+) else (
+    start "" http://localhost:8501
+)
 timeout /t 10 >nul
