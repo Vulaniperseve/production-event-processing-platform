@@ -4,7 +4,9 @@ start the pipeline and follow its tasks live.
 
 Auth: Airflow 3 issues a JWT from /auth/token for a username and password;
 every API call then sends it as a Bearer token. The token is cached and
-fetched again once if the API answers 401 (expired).
+fetched again once if the API rejects it: 401 when it has expired, 403 when
+its signature no longer verifies (Airflow 3.3 answers that way after a
+restart or a key rotation).
 """
 
 import os
@@ -18,12 +20,14 @@ class AirflowUnavailable(RuntimeError):
 
 class AirflowClient:
     def __init__(self, base_url=None, username=None, password=None,
-                 session=None, timeout=10):
+                 session=None, timeout=10, login_timeout=60):
         self.base_url = (base_url or os.getenv("AIRFLOW_API_URL", "http://localhost:8080")).rstrip("/")
         self.username = username or os.getenv("AIRFLOW_USERNAME", "airflow")
         self.password = password or os.getenv("AIRFLOW_PASSWORD", "airflow")
         self.session = session or requests.Session()
         self.timeout = timeout
+        # Login hashes the password, which can take 20+ s on a busy laptop.
+        self.login_timeout = login_timeout
         self._token = None
 
     # ------------------------------------------------------------------ auth
@@ -32,7 +36,7 @@ class AirflowClient:
             response = self.session.post(
                 f"{self.base_url}/auth/token",
                 json={"username": self.username, "password": self.password},
-                timeout=self.timeout,
+                timeout=self.login_timeout,
             )
         except requests.RequestException as exc:
             raise AirflowUnavailable(f"Airflow is not reachable at {self.base_url}") from exc
@@ -52,8 +56,8 @@ class AirflowClient:
                 )
             except requests.RequestException as exc:
                 raise AirflowUnavailable(f"Airflow is not reachable at {self.base_url}") from exc
-            if response.status_code == 401 and attempt == 1:
-                self._token = None          # expired: log in again once
+            if response.status_code in (401, 403) and attempt == 1:
+                self._token = None          # stale token: log in again once
                 continue
             if response.status_code >= 400:
                 detail = response.text[:200]

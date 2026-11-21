@@ -11,7 +11,6 @@ from datetime import UTC, datetime
 from src.streaming.messages import make_tick, tick_problem
 from src.streaming.processor import parse, price_bars, start_queries, valid_ticks
 
-UTC = UTC
 SOURCE_SCHEMA = "value STRING, partition INT, offset LONG"
 
 

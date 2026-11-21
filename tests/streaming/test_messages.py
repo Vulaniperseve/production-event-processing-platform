@@ -13,8 +13,6 @@ from src.streaming.messages import (
     utc_iso,
 )
 
-UTC = UTC
-
 
 def payload(values, symbol="AAPL", tz="America/New_York"):
     return {"meta": {"symbol": symbol, "interval": "1min", "exchange_timezone": tz},

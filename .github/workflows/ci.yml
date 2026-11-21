@@ -11,7 +11,7 @@
 #   8. lint + security: Ruff (incl. Bandit rules), gitleaks over the full
 #      history, pip-audit on every requirements file, Trivy config scan
 #
-# Python 3.12 matches the apache/airflow:3.1.0 image the pipeline runs on.
+# Python 3.12 matches the apache/airflow:3.3.2 image the pipeline runs on.
 
 name: CI
 

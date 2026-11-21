@@ -35,8 +35,10 @@ def test_login_once_and_send_bearer_token(api):
     assert "order_by=-run_after" in api.calls[1].request.url
 
 
-def test_expired_token_is_refreshed_once(api):
-    api.get(f"{BASE}/api/v2/dags/d", status=401)
+@pytest.mark.parametrize("status", [401, 403])
+def test_rejected_token_is_refreshed_once(api, status):
+    # 401 = expired; 403 = signature no longer verifies (Airflow 3.3 after a restart).
+    api.get(f"{BASE}/api/v2/dags/d", status=status)
     api.post(f"{BASE}/auth/token", json={"access_token": "t2"}, status=201)
     api.get(f"{BASE}/api/v2/dags/d", json={"is_paused": True})
 
