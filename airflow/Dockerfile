@@ -6,14 +6,20 @@ FROM apache/airflow:3.3.2-python3.12
 # Spark runs on the JVM. default-jre-headless is the distribution's OpenJDK
 # (Spark 4 supports Java 17 and 21); /usr/lib/jvm/default-java points at it
 # on any CPU architecture.
+# `apt-get upgrade` applies Debian security updates released after the base
+# image was built (the CD image scan flagged perl and brotli).
 USER root
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends default-jre-headless \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 ENV JAVA_HOME=/usr/lib/jvm/default-java
 
 USER airflow
+
+# pip carries its own copy of certifi; 26.2.1's has compromised CA roots.
+RUN pip install --no-cache-dir --upgrade pip==26.3
 
 # PySpark (~450 MB) gets its own layer: it rarely changes, so bumping a pin
 # in requirements.txt doesn't download it again.

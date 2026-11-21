@@ -10,3 +10,21 @@ misconfigurations:
       per-request fees (the project must stay free) and would change object
       ETags, which src/lake/s3_sync.py compares with local MD5s. Revisit if
       the data ever needs key-level access control or audit (CloudTrail on KMS).
+
+vulnerabilities:
+  # Both are Java libraries bundled inside PySpark's jars. No Spark release
+  # ships fixed versions yet (4.1.x has Netty 4.2.7, 4.3.0 has 4.2.13; the fix
+  # is 4.2.17; every release has Derby 10.16.1.1), so they can't be upgraded
+  # from here. expired_at forces a review: the scan fails again after it.
+  - id: CVE-2026-75595
+    expired_at: 2027-02-28
+    statement: >
+      Accepted: Netty SNI routing bypass in TLS servers. Spark runs in local
+      mode inside one container; its Netty transport serves no TLS and is not
+      exposed outside the container. Re-check when Spark ships Netty 4.2.17+.
+  - id: CVE-2022-46337
+    expired_at: 2027-02-28
+    statement: >
+      Accepted: Derby LDAP authentication bypass. Derby is only used as an
+      embedded Hive metastore; this project never enables Hive support or
+      LDAP, so the vulnerable code path is never reached.
