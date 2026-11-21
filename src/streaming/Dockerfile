@@ -1,6 +1,6 @@
 # Kafka producer image: small Python base + the Kafka client.
 # Build context is the repository root (see airflow/docker-compose.yaml).
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
