@@ -1,0 +1,110 @@
+# Unit tests for the alert rules:
+#   promtool test rules monitoring/prometheus/alerts_test.yml
+# Each test feeds a made-up metric history and checks when an alert fires.
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 30s
+
+tests:
+  # A failed run alerts after 1 minute, but not while a retry is running.
+  - interval: 30s
+    input_series:
+      - series: 'platform_dag_last_run_success{dag="production_event_pipeline"}'
+        values: "1 1 0 0 0 0 0 0 0 0"
+      - series: 'platform_dag_running{dag="production_event_pipeline"}'
+        values: "0 0 1 1 1 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: IngestionRunFailed
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: IngestionRunFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              dag: production_event_pipeline
+            exp_annotations:
+              summary: "The latest ingestion run failed"
+              description: "production_event_pipeline's last run failed and no retry is running. Open Airflow, read the failed task's log, fix, then trigger a new run."
+
+  # 3 days behind (a weekend) is fine; 5 days behind for 30 minutes alerts.
+  - interval: 1m
+    input_series:
+      - series: 'platform_data_days_behind{symbol="AAPL"}'
+        values: "3x40"
+      - series: 'platform_data_days_behind{symbol="MSFT"}'
+        values: "5x40"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: DataStale
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: DataStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              symbol: MSFT
+            exp_annotations:
+              summary: "MSFT data is 5 days behind"
+              description: "The latest trade date for MSFT is more than 4 days old."
+
+  # Events that exist only in the lake mean the two systems disagree.
+  - interval: 1m
+    input_series:
+      - series: platform_lake_only_events
+        values: "0 0 0 2x20"
+      - series: platform_return_max_difference
+        values: "0x23"
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: LakeWarehouseMismatch
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: LakeWarehouseMismatch
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "The Spark lake and PostgreSQL disagree"
+              description: "Events exist in the lake but not in PostgreSQL, or period returns differ. One of the two transformations has a bug: compare silver with staging."
+
+  # Messages waiting + no batch for over 2 minutes = the streaming job is stuck.
+  # Lag alone (while batches keep running) is not "stalled".
+  - interval: 30s
+    input_series:
+      - series: platform_stream_lag_messages
+        values: "0 0 40 40 40 40 40 40 40 40 40 40"
+      - series: platform_stream_last_batch_age_seconds
+        values: "5 5 5 5 150 180 210 240 270 300 330 360"
+    alert_rule_test:
+      - eval_time: 1m30s
+        alertname: StreamStalled
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: StreamStalled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Messages are waiting in Kafka but Spark has processed nothing for 2+ minutes"
+              description: "The streaming job is down or stuck. Run `docker compose logs stream-processor`."
+
+  # Offsets going backwards (topic recreated) must alert, even though the
+  # naive lag calculation would say 0.
+  - interval: 30s
+    input_series:
+      - series: platform_stream_offset_resets
+        values: "0 0 2 2 2 2 2"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: KafkaOffsetsReset
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: KafkaOffsetsReset
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Kafka offsets went backwards on 2 partition(s): Spark will skip messages"
+              description: "The topic was recreated while Spark's checkpoint still points to old offsets. Stop stream-processor, delete data/lake/_checkpoints/price_stream, start it again: the sinks are idempotent, so reprocessing the whole topic is safe."

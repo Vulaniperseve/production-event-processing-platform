@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Vulaniperseve/production-event-processing-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Vulaniperseve/production-event-processing-platform/actions/workflows/ci.yml)
 
-A production-oriented data engineering platform that ingests market data from a REST API, preserves every raw response, validates and quarantines bad records, loads clean events idempotently into PostgreSQL, builds an SQL analytics layer, and streams live price ticks through **Kafka** and **Spark Structured Streaming**, runs a Spark **Bronze → Silver → Gold** data lake in Parquet, published to **Amazon S3** and queryable with **Athena** (infrastructure as code with Terraform). Apache Airflow orchestrates it in Docker, and every change runs unit, integration and Spark tests in GitHub Actions.
+A production-oriented data engineering platform that ingests market data from a REST API, preserves every raw response, validates and quarantines bad records, loads clean events idempotently into PostgreSQL, builds an SQL analytics layer, and streams live price ticks through **Kafka** and **Spark Structured Streaming**, runs a Spark **Bronze → Silver → Gold** data lake in Parquet, published to **Amazon S3** and queryable with **Athena** (infrastructure as code with Terraform). Prometheus and Grafana monitor data freshness, quality, lake/warehouse reconciliation and streaming lag with tested alert rules. Apache Airflow orchestrates it in Docker, and every change runs unit, integration and Spark tests in GitHub Actions.
 
 ## Quick start
 
@@ -11,6 +11,8 @@ A production-oriented data engineering platform that ingests market data from a 
 3. Press **Run pipeline** and watch each stage run live, from the API to the Spark data lake.
 
 Streaming (optional, needs more memory): double-click **`stream.bat`** to start Kafka and the Spark streaming job and replay a real trading day. Watch it on the dashboard's *Live stream* page.
+
+Monitoring runs by default: Grafana is at **http://localhost:3000**, and firing alerts also appear in the dashboard's sidebar.
 
 Stop everything with `stop.bat` (your data is kept).
 
@@ -174,6 +176,34 @@ producer (replay | live) ──► Kafka  market.price_ticks  (3 partitions, key
 
 **Verified end to end:** one replay sent 1,170 ticks (3 symbols × 390 minutes), and all 1,170 were delivered and stored once, building 234 five-minute bars. Restarting the processor mid-stream resumed from the checkpoint. Replaying the same day again stored 0 new ticks and dropped every message as a duplicate.
 
+## Monitoring and alerting: Prometheus + Grafana
+
+```text
+metrics exporter (Python) ──► Prometheus (scrape every 30 s, 11 alert rules) ──► Grafana dashboard
+   reads PostgreSQL, the Airflow REST API,               │
+   the lake, Kafka and Spark's checkpoint                └──► firing alerts also shown in the Streamlit sidebar
+```
+
+Monitoring watches **the data, not just the servers**. The exporter (`monitoring/exporter.py`) publishes:
+
+| Area | Metrics | Alert when |
+|---|---|---|
+| Pipeline runs | last result, last success time and duration per DAG | the latest run failed and no retry is running; no success in 26 h |
+| Freshness | hours since load and days behind, per symbol | more than 4 days behind (weekends allowed) |
+| Quality | raw statuses, quarantined records, quarantine rate | over 5% quarantined |
+| Reconciliation | events only in the lake or only in PostgreSQL, largest return difference | the Spark lake and PostgreSQL disagree |
+| Streaming | ticks, duplicates, rejects, latency p95, last batch age, **consumer lag** (Kafka end offsets vs Spark's committed checkpoint), offset resets | lag > 500; messages waiting but no batch for 2 min; offsets went backwards |
+| Monitoring itself | each source's up/down and collection time | the exporter or a source is down |
+
+Design choices:
+- Every rule has a `for:` duration, so a single slow moment doesn't page anyone. On this laptop that suppressed several real blips.
+- Every alert says what is wrong *and what to do* (a runbook in the annotation).
+- The rules are **unit-tested with `promtool test rules`** (fake metric histories in, expected alerts out), and a Python test checks that every metric used by a rule or a Grafana panel exists in the exporter. A typo there would otherwise fail silently: the alert would simply never fire.
+- The Grafana datasource and dashboard are provisioned from files in Git, not clicked together.
+- Collectors are independent: one source being down is reported as a metric, and the rest keep working.
+
+**Tested with a real incident:** with Spark stopped and a replay running, lag climbed to 1,170 and `StreamStalled` fired after its 2-minute window, in Grafana and in the dashboard sidebar. After Spark started it caught up, and both alerts resolved by themselves.
+
 ## Data reliability
 
 | Concern | How it is handled |
@@ -215,8 +245,9 @@ Versioned SQL migrations in `database/migrations/` are the single source of trut
 - **Spark tests** (`tests/lake/`): silver validation and parity with the Python validator, identical event ids, latest-wins deduplication, idempotent reruns, incremental runs that leave untouched partitions' files alone, full refresh equal to incremental, and the gold calculations. They skip automatically when PySpark or Java is unavailable.
 - **Dashboard tests** (`tests/dashboard/`): stage-status aggregation, the Airflow API client (token refresh, unpause then trigger, error handling) against mocked HTTP, the lake and consistency calculations, the HTML diagram, and every page rendered headless with fake data, including a page detecting a deliberate lake/warehouse mismatch.
 - **Streaming tests** (`tests/streaming/`, `tests/lake/test_stream_processor.py`, `tests/integration/test_streaming_sinks.py`): the message contract and time-zone handling (including daylight saving), replay ordering and pacing, the live-mode credit budget, Spark validation parity with the Python rules, event-time OHLC with out-of-order ticks, a full streaming run on a file source that restarts from its checkpoint and drops a re-sent duplicate, and the idempotent PostgreSQL sinks.
+- **Monitoring tests** (`tests/monitoring/`, `monitoring/prometheus/alerts_test.yml`): Spark-checkpoint offset parsing and consumer lag (including the topic-recreated case), every collector against fakes, a failing source being reported rather than crashing, consistency between the exporter, alert rules and Grafana panels, and promtool unit tests for the alert rules.
 - **S3 publish tests** (`tests/test_s3_sync.py`): first sync, no-op re-sync, rewritten partitions, dry run, objects outside the prefix untouched, and the empty-layer guard, all against moto.
-- **GitHub Actions** runs four jobs on every push and pull request: unit tests, integration tests against a `postgres:16` service container, Spark tests on Java 17, and `terraform fmt` + `validate`. Python 3.12 matches the Airflow image.
+- **GitHub Actions** runs five jobs on every push and pull request: unit tests, integration tests against a `postgres:16` service container, Spark tests on Java 17, `terraform fmt` + `validate`, and `promtool` config checks plus alert-rule unit tests. Python 3.12 matches the Airflow image.
 
 ## Running locally
 
@@ -255,11 +286,13 @@ Problems hit while building this, and how they were solved:
 - **Airflow 3.1.0 scheduler crash loop.** A mapped task (one per symbol) waiting to retry with exponential backoff crashed the scheduler with `'MappedOperator' object has no attribute 'max_retry_delay'`. Traced through the Airflow source to `TaskInstance.next_retry_datetime`. The fix was a fixed retry delay instead of exponential backoff, the stuck task was cleared through the REST API, and `tests/test_dag_settings.py` keeps it from coming back.
 - **Docker Desktop wouldn't start after an unclean shutdown** (stale Unix-socket files that Windows can't delete). `start.bat` moves them aside while Docker isn't running.
 - **Counting duplicates in streaming bars.** A test showed a re-sent tick counted twice in a 5-minute bar, because deduplication happened only at the sink. The fix deduplicates within the watermark before aggregating.
+- **Silent data loss in streaming, found by monitoring.** Kafka originally kept its data inside the container. Recreating the container restarted the topic's offsets at 0, while Spark's checkpoint still pointed to offset 1,560, so Spark skipped every new message ("some data may have been lost") and stored nothing. The lag metric even showed 0, because it clamped negative values. Fixes: Kafka data on a named volume, 7-day retention, the exporter detects offsets going backwards (`KafkaOffsetsReset` alert) and counts those messages as lag. Recovery was safe *because the sinks are idempotent*: resetting Spark's checkpoint and reprocessing the whole topic restored the missing trading day, and already-stored ticks were dropped as duplicates.
+- **Kafka health check slower than its timeout.** `kafka-broker-api-versions.sh` starts a JVM (about 30 s of CPU on this laptop), so the broker was always "unhealthy". Replaced with a port check.
 - **Time zones.** PySpark's `collect()` returns naive datetimes in the *Python process's* local time. The streaming job writes timestamps as explicit UTC strings, so results don't depend on the machine's time zone.
 
 ## Tech stack
 
-Python · SQL · Apache Kafka (KRaft) · Spark Structured Streaming · Streamlit · Plotly · PostgreSQL (JSONB, window functions, materialized views) · SQLAlchemy · pandas · Apache Spark / PySpark 4.1 (DataFrames, Spark SQL) · Parquet · Apache Airflow 3 (TaskFlow, dynamic task mapping, Assets) · AWS (S3, IAM, Glue Data Catalog, Athena, Budgets) · Terraform · boto3 / moto · Docker Compose · pytest · GitHub Actions
+Python · SQL · Prometheus · Grafana · Apache Kafka (KRaft) · Spark Structured Streaming · Streamlit · Plotly · PostgreSQL (JSONB, window functions, materialized views) · SQLAlchemy · pandas · Apache Spark / PySpark 4.1 (DataFrames, Spark SQL) · Parquet · Apache Airflow 3 (TaskFlow, dynamic task mapping, Assets) · AWS (S3, IAM, Glue Data Catalog, Athena, Budgets) · Terraform · boto3 / moto · Docker Compose · pytest · GitHub Actions
 
 ## Roadmap
 
@@ -272,5 +305,5 @@ Python · SQL · Apache Kafka (KRaft) · Spark Structured Streaming · Streamlit
 - [x] Cloud: S3 data lake, least-privilege IAM, Athena, Terraform
 - [x] Dashboard: live pipeline view, results, data-quality proof
 - [x] Streaming: Kafka / Spark Structured Streaming
-- [ ] Monitoring and alerting
+- [x] Monitoring and alerting: Prometheus, Grafana, tested alert rules
 - [ ] Performance benchmarking

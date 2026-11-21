@@ -1,0 +1,101 @@
+# Alert rules. Each one describes a data problem someone would act on,
+# with a summary that says what is wrong and where to look.
+groups:
+  - name: pipeline
+    rules:
+      - alert: IngestionRunFailed
+        expr: platform_dag_last_run_success{dag="production_event_pipeline"} == 0
+              and on(dag) platform_dag_running == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "The latest ingestion run failed"
+          description: "production_event_pipeline's last run failed and no retry is running. Open Airflow, read the failed task's log, fix, then trigger a new run."
+
+      - alert: LakehouseRunFailed
+        expr: platform_dag_last_run_success{dag="market_data_lakehouse"} == 0
+              and on(dag) platform_dag_running == 0
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: "The latest data lake build failed"
+          description: "market_data_lakehouse failed. PostgreSQL is still current, but the Spark lake and the S3 copy are behind."
+
+      - alert: NoSuccessfulIngestionIn26h
+        expr: time() - platform_dag_last_success_timestamp_seconds{dag="production_event_pipeline"} > 26 * 3600
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "No successful ingestion in the last 26 hours"
+          description: "The daily 06:00 run didn't succeed (or the platform was off). Data may be stale."
+
+  - name: data
+    rules:
+      - alert: DataStale
+        # Daily market data: weekends and holidays mean up to 3 days behind is normal.
+        expr: platform_data_days_behind > 4
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.symbol }} data is {{ $value }} days behind"
+          description: "The latest trade date for {{ $labels.symbol }} is more than 4 days old."
+
+      - alert: HighQuarantineRate
+        expr: platform_quarantine_rate > 0.05
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of records were quarantined (90 days)"
+          description: "More than 5% of received records failed validation. Check quarantine.quarantined_records for the reasons: the API may have changed its format."
+
+      - alert: LakeWarehouseMismatch
+        expr: platform_lake_only_events > 0 or platform_return_max_difference > 1e-6
+        for: 10m
+        labels: {severity: critical}
+        annotations:
+          summary: "The Spark lake and PostgreSQL disagree"
+          description: "Events exist in the lake but not in PostgreSQL, or period returns differ. One of the two transformations has a bug: compare silver with staging."
+
+  - name: streaming
+    rules:
+      - alert: StreamLagHigh
+        expr: platform_stream_lag_messages > 500 and on() platform_kafka_up == 1
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} Kafka messages are waiting to be processed"
+          description: "Spark is falling behind the producer. Check the stream-processor container (memory, errors)."
+
+      - alert: StreamStalled
+        expr: platform_stream_lag_messages > 0 and on() platform_stream_last_batch_age_seconds > 120
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Messages are waiting in Kafka but Spark has processed nothing for 2+ minutes"
+          description: "The streaming job is down or stuck. Run `docker compose logs stream-processor`."
+
+      - alert: KafkaOffsetsReset
+        expr: platform_stream_offset_resets > 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "Kafka offsets went backwards on {{ $value }} partition(s): Spark will skip messages"
+          description: "The topic was recreated while Spark's checkpoint still points to old offsets. Stop stream-processor, delete data/lake/_checkpoints/price_stream, start it again: the sinks are idempotent, so reprocessing the whole topic is safe."
+
+  - name: monitoring
+    rules:
+      - alert: ExporterDown
+        expr: up{job="platform"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "The platform metrics exporter is down: no other alert can fire"
+          description: "Prometheus can't scrape metrics-exporter:9200."
+
+      - alert: MetricsSourceDown
+        expr: platform_collector_up{collector!="kafka"} == 0
+        for: 3m
+        labels: {severity: critical}
+        annotations:
+          summary: "Can't read metrics from {{ $labels.collector }}"
+          description: "The exporter can't reach {{ $labels.collector }} (PostgreSQL, the Airflow API or the lake). The source itself is probably down."

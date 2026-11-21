@@ -76,6 +76,7 @@ echo.
 echo  Ready:
 echo    Dashboard  http://localhost:8501
 echo    Airflow    http://localhost:8080   (user: airflow)
+echo    Grafana    http://localhost:3000   (monitoring)
 echo.
 echo  To stop everything later, double-click stop.bat
 rem Open the dashboard in its own app window (Microsoft Edge ships with

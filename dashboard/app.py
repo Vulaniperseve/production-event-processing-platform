@@ -59,7 +59,25 @@ with st.sidebar:
     st.divider()
     airflow_ui = os.getenv("AIRFLOW_UI_URL", "http://localhost:8080")
     st.page_link(airflow_ui, label="Open Airflow", icon=":material/open_in_new:")
+    st.page_link(os.getenv("GRAFANA_UI_URL", "http://localhost:3000"), label="Open Grafana (monitoring)",
+                 icon=":material/monitor_heart:")
     st.page_link("https://github.com/Vulaniperseve/production-event-processing-platform",
                  label="Source code", icon=":material/code:")
+
+# Health from Prometheus alert rules, on every page.
+with st.sidebar:
+    st.divider()
+    from dashboard.lib import resources as res
+
+    alerts = res.firing_alerts()
+    if alerts is None:
+        st.caption(":material/cloud_off: Monitoring is offline")
+    elif not alerts:
+        st.caption(":material/check_circle: All health checks passing")
+    else:
+        st.markdown(f"**{len(alerts)} alert{'s' if len(alerts) > 1 else ''} firing**")
+        for alert in alerts:
+            show = st.error if alert["severity"] == "critical" else st.warning
+            show(f"**{alert['name']}**: {alert['summary']}")
 
 nav.run()

@@ -123,3 +123,10 @@ def stream_latest_ticks():
 @st.cache_data(ttl=10, show_spinner=False)
 def stream_rejects():
     return data.stream_rejects(engine())
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def firing_alerts():
+    from dashboard.lib.alerts import firing_alerts as fetch
+
+    return fetch()

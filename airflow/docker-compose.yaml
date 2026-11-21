@@ -325,6 +325,8 @@ services:
       AIRFLOW_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
       AIRFLOW_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
       LAKE_ROOT: /data/lake
+      PROMETHEUS_URL: http://prometheus:9090
+      GRAFANA_UI_URL: http://localhost:3000
     volumes:
       # Code mounted for live reload while developing; the image has a copy too.
       - ../dashboard:/app/dashboard:ro
@@ -336,13 +338,94 @@ services:
         condition: service_healthy
 
   # ------------------------------------------------------------------
+  # Monitoring (phase 9): exporter -> Prometheus (+ alert rules) -> Grafana
+  # ------------------------------------------------------------------
+
+  # Turns platform state (runs, freshness, quality, reconciliation,
+  # streaming lag) into Prometheus metrics. Same image as the dashboard.
+  metrics-exporter:
+    build:
+      context: ..
+      dockerfile: dashboard/Dockerfile
+    image: production-dashboard:1.0
+    command: ["python", "-m", "monitoring.exporter"]
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      AIRFLOW_API_URL: http://airflow-apiserver:8080
+      AIRFLOW_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
+      AIRFLOW_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
+      LAKE_ROOT: /data/lake
+      KAFKA_BOOTSTRAP: kafka:9092
+      STREAM_CHECKPOINT_DIR: /data/lake/_checkpoints/price_stream/ticks
+    volumes:
+      - ../dashboard:/app/dashboard:ro
+      - ../monitoring:/app/monitoring:ro
+      - ../data/lake:/data/lake:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9200/metrics', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 256m
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    mem_limit: 384m
+    restart: always
+
+  # Dashboards are provisioned from files (version-controlled, not clicked
+  # together). Read-only viewing needs no login on this local machine.
+  grafana:
+    image: grafana/grafana-oss:12.1.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_DEFAULT_THEME: light
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/platform.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    mem_limit: 256m
+    restart: always
+    depends_on:
+      - prometheus
+
+  # ------------------------------------------------------------------
   # Streaming (phase 8). Opt-in so the everyday stack stays light:
   #   docker compose --profile streaming up -d      (or stream.bat)
   # ------------------------------------------------------------------
 
   # Single-node Kafka in KRaft mode (no ZooKeeper), heap capped at 256 MB.
-  # Topic data lives in the container: retention is 24 h and PostgreSQL is
-  # the durable store, so recreating the broker loses nothing important.
+  # Topic data is on a named volume: if it lived in the container,
+  # recreating the broker would restart offsets at 0 while Spark's
+  # checkpoint still points further on, and Spark would silently skip
+  # every new message (this happened; see the README's engineering notes).
   kafka:
     image: apache/kafka:4.0.0
     profiles: ["streaming"]
@@ -360,18 +443,25 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
       KAFKA_HEAP_OPTS: "-Xmx256m -Xms256m"
     ports:
       - "29092:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    # A plain port check. (kafka-broker-api-versions.sh starts a new JVM
+    # each time: ~30 s of CPU on a small laptop, longer than any timeout.)
     healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
-      interval: 30s
-      timeout: 20s
-      retries: 5
-      start_period: 30s
+      test: ["CMD-SHELL", "nc -z localhost 9092"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     mem_limit: 768m
-    restart: unless-stopped
+    # Restart after a crash, but don't come back by itself when Docker
+    # starts: streaming stays opt-in (stream.bat) on a small machine.
+    restart: on-failure:5
 
   # Spark Structured Streaming: Kafka -> PostgreSQL. Reuses the Airflow
   # image (Java + PySpark); the Kafka connector jar is downloaded once into
@@ -394,7 +484,7 @@ services:
       kafka:
         condition: service_healthy
     mem_limit: 1536m
-    restart: unless-stopped
+    restart: on-failure:5
 
   # Sends ticks to Kafka. Replay mode (default) sends one real trading day
   # of 1-minute prices and exits; run it again to replay. STREAM_MODE=live
@@ -423,3 +513,6 @@ services:
 
 volumes:
   postgres-db-volume:
+  prometheus-data:
+  grafana-data:
+  kafka-data:
