@@ -1,6 +1,5 @@
 from src.validators.quarantine import QuarantineHandler
 
-
 invalid_records = [
     {
         "record": {

@@ -9,7 +9,14 @@ few seconds with fresh statuses from Airflow.
 from html import escape
 
 from dashboard.lib.pipeline_status import (
-    BLOCKED, FAILED, QUEUED, RETRYING, RUNNING, SKIPPED, SUCCESS, WAITING,
+    BLOCKED,
+    FAILED,
+    QUEUED,
+    RETRYING,
+    RUNNING,
+    SKIPPED,
+    SUCCESS,
+    WAITING,
 )
 
 STATUS_STYLE = {

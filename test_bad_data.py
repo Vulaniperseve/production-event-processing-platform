@@ -1,6 +1,5 @@
 from src.validators.validator import DataValidator
 
-
 test_data = {
     "meta": {
         "symbol": "AAPL"

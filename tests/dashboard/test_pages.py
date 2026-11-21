@@ -16,7 +16,10 @@ from streamlit.testing.v1 import AppTest  # noqa: E402
 from dashboard.lib import resources  # noqa: E402
 from dashboard.lib.airflow_client import AirflowUnavailable  # noqa: E402
 from tests.dashboard.test_pipeline_status import (  # noqa: E402
-    INGEST_RUN, LAKE_RUN, full_ingest, full_lake,
+    INGEST_RUN,
+    LAKE_RUN,
+    full_ingest,
+    full_lake,
 )
 
 SYMBOLS = ["AAPL", "MSFT"]

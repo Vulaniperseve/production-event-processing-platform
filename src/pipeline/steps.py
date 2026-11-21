@@ -12,7 +12,6 @@ the raw layer, and every step reads it from there. This means:
 """
 
 from database.models import RawStatus
-
 from src.extractors.twelve_data_extractor import TwelveDataExtractor
 from src.loaders.postgres_loader import PostgresLoader
 from src.loaders.raw_store import RawStore

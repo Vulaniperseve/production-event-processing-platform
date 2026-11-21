@@ -1,11 +1,17 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from src.streaming import producer
 from src.streaming.producer import (
-    BudgetExhausted, CreditBudget, TwelveData, cached_bars, live, min_poll_interval, replay,
+    BudgetExhausted,
+    CreditBudget,
+    TwelveData,
+    cached_bars,
+    live,
+    min_poll_interval,
+    replay,
 )
 from tests.streaming.test_messages import bar, payload
 
@@ -75,7 +81,7 @@ def test_live_stops_when_the_budget_runs_out():
     budget = CreditBudget(7)
 
     sent = live(pub, api, ["AAPL", "MSFT", "GOOGL"], interval=1, budget=budget, sleep=sleeps.append,
-                now=lambda: datetime(2026, 11, 17, 20, 31, 5, 999, tzinfo=timezone.utc))
+                now=lambda: datetime(2026, 11, 17, 20, 31, 5, 999, tzinfo=UTC))
 
     assert api.calls == 2                       # 3 + 3 credits; a third poll would need 9
     assert sent == 6 and budget.spent == 6
@@ -109,7 +115,8 @@ def test_twelve_data_client():
         assert api.latest_prices(["AAPL"]) == {"AAPL": 231.5}
         with pytest.raises(RuntimeError, match="credits exhausted"):
             api.one_minute_bars("AAPL")
-        assert "apikey=key" in rsps.calls[0].request.url
+        assert rsps.calls[0].request.headers["Authorization"] == "apikey key"
+        assert "key" not in rsps.calls[0].request.url.split("?", 1)[-1]   # never in the URL
 
 
 def test_missing_api_key_is_rejected():

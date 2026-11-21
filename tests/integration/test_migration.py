@@ -6,8 +6,8 @@ from database.migrate import apply_migrations
 from database.models import Base
 from tests.integration.helpers import (
     SCHEMAS,
-    migration_files,
     drop_schemas,
+    migration_files,
     query,
     run_migration,
     run_sql_script,

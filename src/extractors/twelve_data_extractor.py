@@ -1,8 +1,9 @@
-import requests
 import json
 import time
 from datetime import datetime
 from pathlib import Path
+
+import requests
 
 from config.settings import API_KEY, BASE_URL
 from src.extractors.base_extractor import BaseExtractor
@@ -25,8 +26,10 @@ class TwelveDataExtractor(BaseExtractor):
             "symbol": symbol,
             "interval": interval,
             "outputsize": outputsize,
-            "apikey": API_KEY
         }
+        # The key goes in a header, not the URL: request URLs end up in
+        # exception messages and logs (an HTTPError prints the full URL).
+        headers = {"Authorization": f"apikey {API_KEY}"}
 
         max_attempts = 3
 
@@ -41,6 +44,7 @@ class TwelveDataExtractor(BaseExtractor):
                 response = requests.get(
                     self.endpoint,
                     params=params,
+                    headers=headers,
                     timeout=10
                 )
 

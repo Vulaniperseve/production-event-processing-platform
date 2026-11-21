@@ -6,7 +6,7 @@ A production-oriented data engineering platform that ingests market data from a 
 
 ## Quick start
 
-1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/), clone the repo and create `airflow/.env` (Twelve Data API key and database settings).
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and clone the repo. Copy `airflow/.env.example` to `airflow/.env`, add your free Twelve Data API key, then run `python scripts/generate_secrets.py` to create Airflow's secret keys.
 2. Double-click **`start.bat`**. It starts Docker if needed, starts the platform and opens the dashboard at **http://localhost:8501**.
 3. Press **Run pipeline** and watch each stage run live, from the API to the Spark data lake.
 
@@ -238,6 +238,35 @@ ORDER BY period_return DESC;
 
 Versioned SQL migrations in `database/migrations/` are the single source of truth for the schema. `python -m database.migrate` applies pending migrations in order and records them in `public.schema_migrations`, with a checksum to detect edits to already-applied files. Every script is also idempotent.
 
+## CI/CD and security
+
+```text
+push / PR ──► CI: unit · PostgreSQL integration · Spark · Terraform · promtool · lint + security
+                     │ all green on main
+                     ▼
+              CD: build 3 images ──► Trivy vulnerability scan ──► publish to ghcr.io (commit SHA + latest)
+```
+
+| Check | Tool | Fails the build when |
+|---|---|---|
+| Secrets in code | **gitleaks**, over the *entire Git history* | any new secret appears, in any commit |
+| Bugs and insecure code | **Ruff**, including Bandit's security rules | SQL built from strings, unsafe subprocess calls, hard-coded passwords, unused or undefined names |
+| Vulnerable dependencies | **pip-audit** on every pinned requirements file | a package has a known vulnerability (CVE/PYSEC) |
+| Misconfiguration | **Trivy** on Dockerfiles and Terraform | a HIGH or CRITICAL issue isn't fixed or explicitly accepted |
+| Vulnerable images | **Trivy** on each built image, before publishing | a CRITICAL vulnerability that has a fix |
+| Outdated dependencies | **Dependabot** | (opens a weekly PR, and CI decides whether it's safe) |
+
+- **Delivery is gated:** images are only published after CI has passed on `main`, built from the exact commit CI tested, and tagged with that commit's SHA, so every running image traces back to one tested commit.
+- **Least privilege in CI:** workflows read the repository only. The publish job alone may write packages.
+- **Secrets:** real values live only in `airflow/.env` (git-ignored). Docker Compose refuses to start without Airflow's keys, and the Twelve Data key travels in an HTTP header so it can't leak into URLs, errors or logs. See [SECURITY.md](SECURITY.md).
+- **Accepted risks are written down, not silenced:** `.gitleaksignore` and `.trivyignore.yaml` list each reviewed finding with its reason. Anything new still fails.
+
+**What the first scans found, and the fixes:**
+1. Airflow's internal signing and encryption keys had been committed in `airflow.cfg`. All three were rotated, moved to the environment, and encryption was switched on: the Fernet key had been overridden to *empty*, so Airflow wasn't encrypting anything.
+2. The API key could leak into logs through HTTP error messages, which include the URL. Fixed with header authentication, and tested.
+3. Five advisories in `urllib3` and `certifi`. Upgraded.
+4. A possible SQL injection warning: a safe, constant identifier now also gets an explicit allow-list check.
+
 ## Testing and CI
 
 - **Unit tests** (`tests/`): validation, transformation, deterministic IDs, and the pipeline steps with in-memory fakes. No database needed.
@@ -247,7 +276,7 @@ Versioned SQL migrations in `database/migrations/` are the single source of trut
 - **Streaming tests** (`tests/streaming/`, `tests/lake/test_stream_processor.py`, `tests/integration/test_streaming_sinks.py`): the message contract and time-zone handling (including daylight saving), replay ordering and pacing, the live-mode credit budget, Spark validation parity with the Python rules, event-time OHLC with out-of-order ticks, a full streaming run on a file source that restarts from its checkpoint and drops a re-sent duplicate, and the idempotent PostgreSQL sinks.
 - **Monitoring tests** (`tests/monitoring/`, `monitoring/prometheus/alerts_test.yml`): Spark-checkpoint offset parsing and consumer lag (including the topic-recreated case), every collector against fakes, a failing source being reported rather than crashing, consistency between the exporter, alert rules and Grafana panels, and promtool unit tests for the alert rules.
 - **S3 publish tests** (`tests/test_s3_sync.py`): first sync, no-op re-sync, rewritten partitions, dry run, objects outside the prefix untouched, and the empty-layer guard, all against moto.
-- **GitHub Actions** runs five jobs on every push and pull request: unit tests, integration tests against a `postgres:16` service container, Spark tests on Java 17, `terraform fmt` + `validate`, and `promtool` config checks plus alert-rule unit tests. Python 3.12 matches the Airflow image.
+- **GitHub Actions** runs six jobs on every push and pull request: unit tests, integration tests against a `postgres:16` service container, Spark tests on Java 17, `terraform fmt` + `validate`, `promtool` checks plus alert-rule unit tests, and lint + security (Ruff, gitleaks, pip-audit, Trivy). Python 3.12 matches the Airflow image.
 
 ## Running locally
 
@@ -306,4 +335,5 @@ Python · SQL · Prometheus · Grafana · Apache Kafka (KRaft) · Spark Structur
 - [x] Dashboard: live pipeline view, results, data-quality proof
 - [x] Streaming: Kafka / Spark Structured Streaming
 - [x] Monitoring and alerting: Prometheus, Grafana, tested alert rules
+- [x] CI/CD and security: secret, dependency, code and image scanning; gated image publishing
 - [ ] Performance benchmarking

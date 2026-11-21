@@ -6,12 +6,15 @@ plain views that are always current, plus the materialized
 analytics.symbol_summary, which is refreshed here after each load.
 """
 
+import re
+
 from sqlalchemy import text
 
 from database.database import engine
 from src.logger import logger
 
 MATERIALIZED_VIEWS = ("analytics.symbol_summary",)
+_SAFE_IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*")
 
 
 def refresh_analytics():
@@ -29,8 +32,12 @@ def refresh_analytics():
 
     with engine.begin() as conn:
         for view in MATERIALIZED_VIEWS:
+            # Identifiers can't be bound parameters, so the name is formatted
+            # in. It comes only from the constant above, and is checked anyway.
+            if not _SAFE_IDENTIFIER.fullmatch(view):
+                raise ValueError(f"Unexpected view name: {view!r}")
             conn.execute(text(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}"))
-            counts[view] = conn.execute(text(f"SELECT count(*) FROM {view}")).scalar()
+            counts[view] = conn.execute(text(f"SELECT count(*) FROM {view}")).scalar()  # noqa: S608
 
     logger.info(f"Analytics refreshed: {counts}")
 

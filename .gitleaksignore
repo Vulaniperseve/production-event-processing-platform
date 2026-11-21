@@ -1,0 +1,10 @@
+# Findings reviewed and resolved. gitleaks skips these exact fingerprints
+# (commit:file:rule:line), so any NEW secret anywhere still fails the scan.
+#
+# Airflow's internal keys (fernet_key, [api] secret_key, [api_auth] jwt_secret)
+# were committed in airflow/config/airflow.cfg on 2026-08-26. All three were
+# rotated on 2026-11-21: the old values are useless, and the real values now
+# come only from airflow/.env (git-ignored) via scripts/generate_secrets.py.
+e7f11abc5879688f6ac7d335ba38a2112a32b9bf:airflow/config/airflow.cfg:generic-api-key:172
+e7f11abc5879688f6ac7d335ba38a2112a32b9bf:airflow/config/airflow.cfg:generic-api-key:1211
+e7f11abc5879688f6ac7d335ba38a2112a32b9bf:airflow/config/airflow.cfg:generic-api-key:1484

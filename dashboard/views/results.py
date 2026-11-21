@@ -33,7 +33,7 @@ def pct(v, signed=True):
 # ------------------------------------------------------------ KPI tiles
 st.subheader("Performance over the period")
 cols = st.columns(len(symbols))
-for col, (_, row) in zip(cols, summary.iterrows()):
+for col, (_, row) in zip(cols, summary.iterrows(), strict=True):
     with col:
         st.metric(
             f"{row['symbol']} · {int(row['trading_days'])} trading days",

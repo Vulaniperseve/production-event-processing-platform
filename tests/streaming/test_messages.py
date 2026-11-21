@@ -1,14 +1,19 @@
 import json
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
 from src.streaming.messages import (
-    bars_to_ticks, encode, make_tick, tick_event_id, tick_problem, utc_iso,
+    bars_to_ticks,
+    encode,
+    make_tick,
+    tick_event_id,
+    tick_problem,
+    utc_iso,
 )
 
-UTC = timezone.utc
+UTC = UTC
 
 
 def payload(values, symbol="AAPL", tz="America/New_York"):

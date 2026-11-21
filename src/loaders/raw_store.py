@@ -1,12 +1,10 @@
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from database.database import SessionLocal
 from database.models import RawAPIEvent, RawStatus
-
 from src.logger import logger
-
 
 SOURCE_SYSTEM = "TwelveData"
 
@@ -100,7 +98,7 @@ class RawStore:
             raw_event.processing_status = status
             raw_event.error_message = error_message
             # naive UTC, matching the TIMESTAMP (without time zone) column
-            raw_event.processed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            raw_event.processed_at = datetime.now(UTC).replace(tzinfo=None)
 
             session.commit()
 

@@ -1,8 +1,17 @@
 import pytest
 
 from dashboard.lib.pipeline_status import (
-    BLOCKED, FAILED, QUEUED, RETRYING, RUNNING, SKIPPED, SUCCESS, WAITING,
-    aggregate_states, build_pipeline_view, lake_run_belongs_to,
+    BLOCKED,
+    FAILED,
+    QUEUED,
+    RETRYING,
+    RUNNING,
+    SKIPPED,
+    SUCCESS,
+    WAITING,
+    aggregate_states,
+    build_pipeline_view,
+    lake_run_belongs_to,
 )
 
 

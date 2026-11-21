@@ -1,8 +1,11 @@
 from dashboard.lib.flow import render_flow, stage_metric
 from dashboard.lib.pipeline_status import (
-    RUNNING, SKIPPED, SUCCESS, WAITING, build_pipeline_view,
+    RUNNING,
+    SKIPPED,
+    SUCCESS,
+    WAITING,
+    build_pipeline_view,
 )
-
 from tests.dashboard.test_pipeline_status import INGEST_RUN, LAKE_RUN, full_ingest, full_lake, ti
 
 NUMBERS = {"api_responses": 3, "records_received": 300, "quarantined": 2, "valid": 298,

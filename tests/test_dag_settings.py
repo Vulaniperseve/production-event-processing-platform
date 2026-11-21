@@ -19,7 +19,7 @@ def default_args(dag_file):
         if (isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "default_args"
                                                  for t in node.targets)):
             # Keep the plain values (numbers, booleans, strings); skip timedelta(...) calls.
-            return {k.value: v.value for k, v in zip(node.value.keys, node.value.values)
+            return {k.value: v.value for k, v in zip(node.value.keys, node.value.values, strict=True)
                     if isinstance(v, ast.Constant)}
     raise AssertionError(f"no default_args in {dag_file}")
 

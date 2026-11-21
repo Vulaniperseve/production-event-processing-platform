@@ -2,7 +2,6 @@ from sqlalchemy.dialects.postgresql import insert
 
 from database.database import SessionLocal
 from database.models import MarketEvent
-
 from src.logger import logger
 
 

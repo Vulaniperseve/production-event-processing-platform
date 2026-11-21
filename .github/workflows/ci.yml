@@ -8,6 +8,8 @@
 #   5. runs the Spark data lake tests (PySpark on Java 17)
 #   6. checks the Terraform (format + validate; no AWS credentials needed)
 #   7. checks the Prometheus config and unit-tests the alert rules (promtool)
+#   8. lint + security: Ruff (incl. Bandit rules), gitleaks over the full
+#      history, pip-audit on every requirements file, Trivy config scan
 #
 # Python 3.12 matches the apache/airflow:3.1.0 image the pipeline runs on.
 
@@ -188,3 +190,43 @@ jobs:
           docker run --rm -v "$PWD/monitoring/prometheus:/etc/prometheus:ro" -w /etc/prometheus
           --entrypoint promtool prom/prometheus:v3.5.0
           test rules alerts_test.yml
+
+  security:
+    name: Lint and security
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out code (full history, for the secret scan)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: pip install ruff==0.17.6 pip-audit==2.10.1
+
+      - name: Ruff (bugs, imports, Bandit security rules)
+        run: ruff check --output-format=github .
+
+      - name: Secret scan of the whole Git history (gitleaks)
+        run: >
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.28.0
+          git /repo --redact --no-banner --exit-code 1
+
+      - name: Known vulnerabilities in pinned dependencies (pip-audit)
+        run: |
+          for f in requirements.txt requirements-spark.txt dashboard/requirements.txt                    monitoring/requirements.txt src/streaming/requirements.txt; do
+            echo "== $f"
+            pip-audit --no-deps --disable-pip --progress-spinner off -r "$f"
+          done
+
+      - name: Misconfigurations in Dockerfiles, Compose and Terraform (Trivy)
+        run: >
+          docker run --rm -v "$PWD:/repo:ro" aquasec/trivy:0.75.0
+          config --timeout 15m --exit-code 1 --severity HIGH,CRITICAL
+          --ignorefile /repo/.trivyignore.yaml /repo

@@ -2,12 +2,11 @@ import json
 
 from src.validators.validator import DataValidator
 
-
 RAW_FILE = "data/raw/AAPL_20260826_030153.json"
 
 
 # Load existing raw data
-with open(RAW_FILE, "r") as file:
+with open(RAW_FILE) as file:
     data = json.load(file)
 
 

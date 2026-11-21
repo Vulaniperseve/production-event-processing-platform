@@ -25,7 +25,7 @@ import logging
 import math
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import requests
@@ -71,8 +71,9 @@ class TwelveData:
         self.timeout = timeout
 
     def _get(self, path, **params):
-        response = self.session.get(f"{API_URL}/{path}", timeout=self.timeout,
-                                    params={**params, "apikey": self.api_key})
+        # Key in a header, never in the URL (URLs end up in errors and logs).
+        response = self.session.get(f"{API_URL}/{path}", timeout=self.timeout, params=params,
+                                    headers={"Authorization": f"apikey {self.api_key}"})
         response.raise_for_status()
         data = response.json()
         if isinstance(data, dict) and data.get("status") == "error":
@@ -171,7 +172,7 @@ def replay(publisher, payloads, speed=60.0, sleep=time.sleep):
         if tick_problem(tick):
             log.warning("skipping invalid bar %s: %s", tick, tick_problem(tick))
             continue
-        tick["produced_at"] = utc_iso(datetime.now(timezone.utc))   # sent now, happened then
+        tick["produced_at"] = utc_iso(datetime.now(UTC))   # sent now, happened then
         publisher.publish(tick)
         sent += 1
     publisher.flush()
@@ -179,7 +180,7 @@ def replay(publisher, payloads, speed=60.0, sleep=time.sleep):
 
 
 def live(publisher, api, symbols, interval, budget, polls=None, sleep=time.sleep,
-         now=lambda: datetime.now(timezone.utc)):
+         now=lambda: datetime.now(UTC)):
     """Poll latest prices until the credit budget (or `polls`) runs out."""
     interval = max(interval, min_poll_interval(len(symbols)))
     sent, done = 0, 0

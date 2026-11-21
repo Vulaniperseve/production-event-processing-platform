@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pandas as pd
 import pytest
@@ -6,7 +6,7 @@ import pytest
 pytest.importorskip("prometheus_client")
 
 from monitoring import exporter  # noqa: E402
-from monitoring.exporter import M, REGISTRY  # noqa: E402
+from monitoring.exporter import REGISTRY, M  # noqa: E402
 
 
 def value(name, **labels):
@@ -39,7 +39,7 @@ def test_airflow_collector_reports_last_result_and_last_success():
     assert value("platform_dag_last_run_success", **ingest) == 0
     assert value("platform_dag_last_run_duration_seconds", **ingest) == 90
     assert value("platform_dag_last_success_timestamp_seconds", **ingest) == \
-        datetime(2026, 11, 20, 6, 4, tzinfo=timezone.utc).timestamp()
+        datetime(2026, 11, 20, 6, 4, tzinfo=UTC).timestamp()
     assert value("platform_dag_running", **ingest) == 0
     assert value("platform_dag_running", dag="market_data_lakehouse") == 1
     assert value("platform_dag_last_run_success", dag="market_data_lakehouse") == 1

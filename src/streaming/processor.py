@@ -23,7 +23,12 @@ import time
 
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
-    DoubleType, IntegerType, LongType, StringType, StructField, StructType,
+    DoubleType,
+    IntegerType,
+    LongType,
+    StringType,
+    StructField,
+    StructType,
 )
 
 log = logging.getLogger("stream-processor")

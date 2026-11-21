@@ -1,6 +1,6 @@
 """Live stream page: Kafka -> Spark Structured Streaming -> PostgreSQL, live."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pandas as pd
 import streamlit as st
@@ -35,7 +35,7 @@ if not available:
 def _ago(ts):
     if ts is None or pd.isna(ts):
         return None
-    seconds = (datetime.now(timezone.utc) - pd.Timestamp(ts).to_pydatetime()).total_seconds()
+    seconds = (datetime.now(UTC) - pd.Timestamp(ts).to_pydatetime()).total_seconds()
     return max(seconds, 0)
 
 

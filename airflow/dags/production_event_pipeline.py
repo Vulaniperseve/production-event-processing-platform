@@ -84,7 +84,8 @@ def production_event_pipeline():
 
     @task(task_id="validate_raw")
     def validate_raw(raw_event_id: int):
-        from src.pipeline.steps import StructureValidationError, validate_raw as validate_step
+        from src.pipeline.steps import StructureValidationError
+        from src.pipeline.steps import validate_raw as validate_step
 
         try:
             validate_step(raw_event_id)

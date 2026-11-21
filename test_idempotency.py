@@ -1,15 +1,14 @@
 import json
 
-from src.validators.validator import DataValidator
-from src.transformers.transformer import DataTransformer
 from src.loaders.postgres_loader import PostgresLoader
-
+from src.transformers.transformer import DataTransformer
+from src.validators.validator import DataValidator
 
 # Find one of the existing raw API JSON files
 RAW_FILE = "data/raw/AAPL_20260826_031059.json"
 
 
-with open(RAW_FILE, "r") as file:
+with open(RAW_FILE) as file:
     data = json.load(file)
 
 

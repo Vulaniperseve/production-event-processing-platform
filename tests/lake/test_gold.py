@@ -30,7 +30,7 @@ def read(spark, lake, table, symbol=None):
 
 
 def test_daily_returns_and_drawdown(spark, lake):
-    build(spark, lake, {"TST": list(zip(days(4), [100, 110, 99, 120]))})
+    build(spark, lake, {"TST": list(zip(days(4), [100, 110, 99, 120], strict=True))})
 
     r = read(spark, lake, "daily_metrics", "TST").orderBy("trade_date").collect()
 
@@ -44,7 +44,7 @@ def test_daily_returns_and_drawdown(spark, lake):
 
 
 def test_rolling_windows_need_a_full_window(spark, lake):
-    build(spark, lake, {"SEQ": list(zip(days(25), range(1, 26)))})
+    build(spark, lake, {"SEQ": list(zip(days(25), range(1, 26), strict=True))})
 
     r = {x.trading_day_number: x for x in read(spark, lake, "daily_metrics", "SEQ").collect()}
 
@@ -56,7 +56,7 @@ def test_rolling_windows_need_a_full_window(spark, lake):
 
 def test_gold_matches_postgres_analytics_definitions(spark, lake):
     """Same inputs as tests/integration/test_analytics.py, same answers."""
-    build(spark, lake, {"DD": list(zip(days(4), [100, 120, 90, 130]))})
+    build(spark, lake, {"DD": list(zip(days(4), [100, 120, 90, 130], strict=True))})
 
     r = read(spark, lake, "daily_metrics", "DD").orderBy("trade_date").collect()
 
@@ -70,9 +70,9 @@ def test_return_correlation(spark, lake):
     opposite = [100, 90, 99, 89.1, 98.01]            # -10%, +10%, -10%, +10%
 
     build(spark, lake, {
-        "AAA": list(zip(days(5), up_down)),
-        "BBB": list(zip(days(5), same)),
-        "CCC": list(zip(days(5), opposite)),
+        "AAA": list(zip(days(5), up_down, strict=True)),
+        "BBB": list(zip(days(5), same, strict=True)),
+        "CCC": list(zip(days(5), opposite, strict=True)),
     })
 
     corr = {
@@ -87,8 +87,8 @@ def test_return_correlation(spark, lake):
 
 
 def test_monthly_summary(spark, lake):
-    october = list(zip(days(3, start=28), [100, 102, 104]))          # last Oct close 104
-    november = list(zip(days(2, start=2, month="2026-11"), [110, 114.4]))
+    october = list(zip(days(3, start=28), [100, 102, 104], strict=True))          # last Oct close 104
+    november = list(zip(days(2, start=2, month="2026-11"), [110, 114.4], strict=True))
     build(spark, lake, {"MON": october + november})
 
     rows = {r.month: r for r in read(spark, lake, "monthly_summary").collect()}
@@ -100,8 +100,8 @@ def test_monthly_summary(spark, lake):
 
 
 def test_gold_is_fully_rebuilt(spark, lake, tmp_path):
-    counts = build(spark, lake, {"AAA": list(zip(days(3), [1, 2, 3])),
-                                 "BBB": list(zip(days(3), [3, 2, 1]))})
+    counts = build(spark, lake, {"AAA": list(zip(days(3), [1, 2, 3], strict=True)),
+                                 "BBB": list(zip(days(3), [3, 2, 1], strict=True))})
     assert counts == {"daily_metrics": 6, "monthly_summary": 2, "return_correlation": 1}
 
     # rebuild from the same silver: identical counts, no leftovers

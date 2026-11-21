@@ -58,7 +58,8 @@ def is_data_file(rel_path):
 
 
 def file_md5(path):
-    digest = hashlib.md5()
+    # A checksum to compare with S3's ETag, not a security use of MD5.
+    digest = hashlib.md5(usedforsecurity=False)
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             digest.update(chunk)

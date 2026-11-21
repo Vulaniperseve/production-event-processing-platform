@@ -94,7 +94,7 @@ lake = res.lake_layers()
 st.markdown("**Data lake layers**")
 cols = st.columns(3)
 for col, name, label in zip(cols, ("bronze", "silver", "gold"),
-                            ("Bronze · raw JSON", "Silver · Parquet", "Gold · Parquet")):
+                            ("Bronze · raw JSON", "Silver · Parquet", "Gold · Parquet"), strict=True):
     layer = lake.get(name, {})
     rows = f"{layer.get('rows'):,} rows · " if layer.get("rows") is not None else ""
     updated = (datetime.fromtimestamp(layer["updated"]).strftime("%d %b %H:%M")

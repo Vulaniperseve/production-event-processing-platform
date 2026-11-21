@@ -1,17 +1,16 @@
 from sqlalchemy import (
     Column,
-    Integer,
-    String,
-    Text,
     DateTime,
     Float,
     ForeignKey,
     Index,
+    Integer,
+    String,
+    Text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
-
 
 Base = declarative_base()
 

@@ -18,7 +18,7 @@ is what lets the sink drop duplicates.
 import hashlib
 import json
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 SCHEMA_VERSION = 1
@@ -27,7 +27,7 @@ EVENT_TYPE = "PRICE_TICK"
 
 def utc_iso(ts):
     """2026-11-17T20:31:00Z (seconds) or with milliseconds when present."""
-    ts = ts.astimezone(timezone.utc)
+    ts = ts.astimezone(UTC)
     if ts.microsecond:
         return ts.strftime("%Y-%m-%dT%H:%M:%S.") + f"{ts.microsecond // 1000:03d}Z"
     return ts.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -47,7 +47,7 @@ def make_tick(symbol, event_ts, price, volume, source, produced_at=None):
         "price": price,
         "volume": volume,
         "source": source,
-        "produced_at": utc_iso(produced_at or datetime.now(timezone.utc)),
+        "produced_at": utc_iso(produced_at or datetime.now(UTC)),
     }
 
 

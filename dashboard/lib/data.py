@@ -9,7 +9,7 @@ Parquet data lake.
 """
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -124,7 +124,7 @@ def _naive_utc(ts):
     if isinstance(ts, str):
         ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
     if ts.tzinfo is not None:
-        ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
+        ts = ts.astimezone(UTC).replace(tzinfo=None)
     return ts
 
 

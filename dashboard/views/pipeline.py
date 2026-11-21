@@ -2,7 +2,7 @@
 
 import contextlib
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pandas as pd
 import streamlit as st
@@ -34,7 +34,7 @@ def _ago(ts):
     t = _parse(ts)
     if not t:
         return "–"
-    seconds = int((datetime.now(timezone.utc) - t).total_seconds())
+    seconds = int((datetime.now(UTC) - t).total_seconds())
     if seconds < 60:
         return f"{seconds}s ago"
     if seconds < 3600:
@@ -45,7 +45,7 @@ def _ago(ts):
 
 
 def _elapsed(start, end=None):
-    s, e = _parse(start), _parse(end) or datetime.now(timezone.utc)
+    s, e = _parse(start), _parse(end) or datetime.now(UTC)
     if not s:
         return "–"
     seconds = max(int((e - s).total_seconds()), 0)

@@ -1,0 +1,12 @@
+# Trivy findings reviewed and accepted, each with a reason. Anything not
+# listed here still fails CI.
+misconfigurations:
+  - id: AWS-0132
+    paths:
+      - "**/s3.tf"
+    statement: >
+      Accepted: the lake bucket is encrypted at rest with SSE-S3 (AES-256,
+      S3-managed keys). A customer-managed KMS key would cost ~$1/month plus
+      per-request fees (the project must stay free) and would change object
+      ETags, which src/lake/s3_sync.py compares with local MD5s. Revisit if
+      the data ever needs key-level access control or audit (CloudTrail on KMS).
