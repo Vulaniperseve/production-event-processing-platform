@@ -18,8 +18,10 @@ ENV JAVA_HOME=/usr/lib/jvm/default-java
 
 USER airflow
 
-# pip carries its own copy of certifi; 26.2.1's has compromised CA roots.
-RUN pip install --no-cache-dir --upgrade pip==26.3
+# pip and uv (the image's fast installer) each carry their own CA bundle;
+# the versions in the base image trust an emSign root whose intermediate CA
+# keys were compromised.
+RUN pip install --no-cache-dir --upgrade pip==26.3 uv==0.13.9
 
 # PySpark (~450 MB) gets its own layer: it rarely changes, so bumping a pin
 # in requirements.txt doesn't download it again.
