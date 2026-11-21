@@ -1,4 +1,4 @@
-FROM apache/airflow:3.1.0
+FROM apache/airflow:3.4.0
 
 # Spark runs on the JVM. default-jre-headless is OpenJDK 17 on Debian
 # bookworm, and /usr/lib/jvm/default-java points at it on any CPU arch.
