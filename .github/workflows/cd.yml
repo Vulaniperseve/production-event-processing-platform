@@ -41,7 +41,7 @@ jobs:
       matrix:
         include:
           - name: airflow
-            context: airflow
+            context: .                   # same as docker-compose: the repo root
             dockerfile: airflow/Dockerfile
           - name: dashboard
             context: .
