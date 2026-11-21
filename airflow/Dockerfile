@@ -1,7 +1,7 @@
 # 3.3.2 (from 3.1.0): fixes critical vulnerabilities in Airflow itself and
 # in libraries it ships (PyJWT, Authlib, GitPython...). Python pinned to
 # 3.12 to match CI.
-FROM apache/airflow:3.3.2-python3.12
+FROM apache/airflow:3.4.0-python3.12
 
 # Spark runs on the JVM. default-jre-headless is the distribution's OpenJDK
 # (Spark 4 supports Java 17 and 21); /usr/lib/jvm/default-java points at it
