@@ -1,8 +1,40 @@
 import math
+import re
+from datetime import datetime
 
 import pandas as pd
 
 from src.logger import logger
+
+# pandas timestamps only cover 1677-09-21 to 2262-04-11.
+_PANDAS_MIN_YEAR, _PANDAS_MAX_YEAR = 1678, 2261
+# Fast path only for calendar dates (not ISO week/ordinal forms like 2026-W47).
+_ISO_DATE_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def is_valid_datetime(value):
+    """
+    True if pandas can parse `value` as a timestamp.
+
+    Fast path: Twelve Data sends ISO dates ("2026-11-20" or
+    "2026-11-20 15:30:00"), which datetime.fromisoformat parses in about a
+    microsecond. Anything else (other formats, years pandas can't represent)
+    falls back to pd.to_datetime, so the accepted set is unchanged. The
+    fallback alone cost ~1 ms per record and dominated the pipeline.
+    """
+    if isinstance(value, str) and _ISO_DATE_PREFIX.match(value):
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            pass
+        else:
+            if _PANDAS_MIN_YEAR <= parsed.year <= _PANDAS_MAX_YEAR:
+                return True
+    try:
+        pd.to_datetime(value)
+    except Exception:
+        return False
+    return True
 
 
 class DataValidator:
@@ -84,13 +116,7 @@ class DataValidator:
                 continue
 
             # Validate datetime
-            try:
-
-                pd.to_datetime(
-                    record["datetime"]
-                )
-
-            except Exception:
+            if not is_valid_datetime(record["datetime"]):
 
                 invalid_records.append({
                     "record": record,

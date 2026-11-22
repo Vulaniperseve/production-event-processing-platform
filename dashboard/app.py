@@ -52,21 +52,30 @@ with st.sidebar:
                  icon=":material/monitor_heart:")
     st.page_link("https://github.com/Vulaniperseve/production-event-processing-platform",
                  label="Source code", icon=":material/code:")
-
-# Health from Prometheus alert rules, on every page.
-with st.sidebar:
     st.divider()
+    health = st.empty()   # filled in after the page, so it never delays it
+
+# Show something straight away: the first visit after a start imports pandas,
+# SQLAlchemy and friends (~2 s) and reads the lake stats before the page can
+# draw. Without this the window stays blank meanwhile.
+loading = st.empty()
+loading.html(theme.LOADING)
+try:
+    nav.run()
+finally:  # pages may st.stop() early (e.g. database offline)
+    loading.empty()
+
+    # Health from Prometheus alert rules, on every page.
     from dashboard.lib import resources as res
 
     alerts = res.firing_alerts()
-    if alerts is None:
-        st.caption(":material/cloud_off: Monitoring is offline")
-    elif not alerts:
-        st.caption(":material/check_circle: All health checks passing")
-    else:
-        st.markdown(f"**{len(alerts)} alert{'s' if len(alerts) > 1 else ''} firing**")
-        for alert in alerts:
-            show = st.error if alert["severity"] == "critical" else st.warning
-            show(f"**{alert['name']}**: {alert['summary']}")
-
-nav.run()
+    with health.container():
+        if alerts is None:
+            st.caption(":material/cloud_off: Monitoring is offline")
+        elif not alerts:
+            st.caption(":material/check_circle: All health checks passing")
+        else:
+            st.markdown(f"**{len(alerts)} alert{'s' if len(alerts) > 1 else ''} firing**")
+            for alert in alerts:
+                show = st.error if alert["severity"] == "critical" else st.warning
+                show(f"**{alert['name']}**: {alert['summary']}")

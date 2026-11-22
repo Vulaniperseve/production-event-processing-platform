@@ -1,0 +1,56 @@
+{
+  "label": "batched",
+  "date": "2026-11-22T04:19:39",
+  "repeat": 3,
+  "machine": "Intel64 Family 6 Model 78 Stepping 3, GenuineIntel (4 logical CPUs), Python 3.14.3",
+  "results": [
+    {
+      "records": 1000,
+      "validate_s": 0.004365600005257875,
+      "valid": 990,
+      "invalid": 10,
+      "transform_s": 0.021740600001066923,
+      "load_s": 0.18537759999890113,
+      "inserted": 990,
+      "reload_s": 0.14075749999756226,
+      "reload_skipped": 990,
+      "raw_save_s": 0.03417069999704836,
+      "validate_step_s": 0.0570780999987619,
+      "transform_load_step_s": 0.20231930000591092,
+      "total_s": 0.2998479999951087,
+      "records_per_s": 3335.0230784141054
+    },
+    {
+      "records": 10000,
+      "validate_s": 0.05654250000225147,
+      "valid": 9900,
+      "invalid": 100,
+      "transform_s": 0.17458219999389257,
+      "load_s": 1.1571607000005315,
+      "inserted": 9900,
+      "reload_s": 1.531807299994398,
+      "reload_skipped": 9900,
+      "raw_save_s": 0.26569670000026235,
+      "validate_step_s": 0.2179383999973652,
+      "transform_load_step_s": 1.2055288000046858,
+      "total_s": 1.7184875000020838,
+      "records_per_s": 5819.070548949512
+    },
+    {
+      "records": 50000,
+      "validate_s": 0.4015865000037593,
+      "valid": 49500,
+      "invalid": 500,
+      "transform_s": 0.859054799999285,
+      "load_s": 7.089225700001407,
+      "inserted": 49500,
+      "reload_s": 6.112579699998605,
+      "reload_skipped": 49500,
+      "raw_save_s": 1.7599324000038905,
+      "validate_step_s": 0.9857716999977129,
+      "transform_load_step_s": 10.497244400001364,
+      "total_s": 13.272835199997644,
+      "records_per_s": 3767.092655532171
+    }
+  ]
+}

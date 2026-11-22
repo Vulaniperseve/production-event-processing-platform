@@ -1,5 +1,4 @@
 import hashlib
-from pathlib import Path
 
 import pandas as pd
 
@@ -31,15 +30,15 @@ class DataTransformer:
             inplace=True
         )
 
-        # Create deterministic event IDs
-        df["event_id"] = df.apply(
-            lambda row: hashlib.sha256(
-                f"{row['entity_id']}|"
-                f"{row['event_time']}|"
-                f"{row['event_type']}".encode()
-            ).hexdigest()[:36],
-            axis=1
-        )
+        # Deterministic event IDs: sha256("SYMBOL|datetime|TYPE")[:36].
+        # A list comprehension over the columns; DataFrame.apply(axis=1) builds
+        # a Series per row and was ~20x slower.
+        df["event_id"] = [
+            hashlib.sha256(f"{entity}|{event_time}|{event_type}".encode()).hexdigest()[:36]
+            for entity, event_time, event_type in zip(
+                df["entity_id"], df["event_time"], df["event_type"], strict=True
+            )
+        ]
 
         columns = [
             "event_id",
@@ -51,16 +50,6 @@ class DataTransformer:
         ]
 
         df = df[columns]
-
-        Path("data/processed").mkdir(
-            parents=True,
-            exist_ok=True
-        )
-
-        df.to_csv(
-            "data/processed/events.csv",
-            index=False
-        )
 
         logger.info(
             f"Data transformation successful. "

@@ -194,12 +194,15 @@ def lake_layers(root=None):
         if suffix == ".parquet":
             rows = sum(pq.ParquetFile(f).metadata.num_rows for f in files)
         partitions = len({f.parent for f in files})
+        # One stat per file: on Docker Desktop each call crosses the Windows
+        # file-sharing bridge, so it's far slower than on a local disk.
+        stats = [f.stat() for f in files]
         layers[name] = {
             "files": len(files),
-            "bytes": sum(f.stat().st_size for f in files),
+            "bytes": sum(s.st_size for s in stats),
             "rows": rows,
             "partitions": partitions,
-            "updated": max((f.stat().st_mtime for f in files), default=None),
+            "updated": max((s.st_mtime for s in stats), default=None),
         }
     return layers
 

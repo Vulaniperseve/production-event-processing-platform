@@ -101,6 +101,22 @@ button[data-testid="stBaseButton-primary"]:hover {
 </style>
 """
 
+LOADING = """
+<style>
+@keyframes ld-spin {to {transform: rotate(360deg);}}
+@keyframes ld-pulse {0%, 100% {opacity: .55;} 50% {opacity: 1;}}
+</style>
+<div style="display:flex;align-items:center;gap:14px;padding:18px 20px;margin-top:8px;border-radius:14px;
+            background:rgba(34,29,71,.55);border:1px solid rgba(127,119,221,.28);max-width:520px">
+  <div style="width:22px;height:22px;border-radius:50%;border:3px solid rgba(127,119,221,.25);
+              border-top-color:#AFA9EC;animation:ld-spin .9s linear infinite"></div>
+  <div>
+    <div style="color:#EEEDFE;font-weight:600;animation:ld-pulse 1.6s ease-in-out infinite">Loading the dashboard…</div>
+    <div style="color:#A9A5D6;font-size:13px">Reading the latest data from Airflow, PostgreSQL and the lake</div>
+  </div>
+</div>
+"""
+
 BRAND = """
 <div style="display:flex;align-items:center;gap:10px;margin:2px 0 4px">
   <div style="width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;

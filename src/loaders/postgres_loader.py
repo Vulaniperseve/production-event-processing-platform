@@ -1,8 +1,14 @@
-from sqlalchemy.dialects.postgresql import insert
+import csv
+import io
+
+from sqlalchemy import text
 
 from database.database import SessionLocal
-from database.models import MarketEvent
 from src.logger import logger
+
+COLUMNS = ("event_id", "entity_id", "event_time", "event_type", "value",
+           "source_system", "raw_event_id")
+_COLUMN_LIST = ", ".join(COLUMNS)
 
 
 class PostgresLoader:
@@ -25,14 +31,30 @@ class PostgresLoader:
         ]
 
     @staticmethod
+    def _to_csv(rows):
+        """Rows as CSV text for COPY. None becomes an empty field, which COPY reads as NULL."""
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, lineterminator="\n")
+        for row in rows:
+            writer.writerow(["" if row[c] is None else row[c] for c in COLUMNS])
+        buffer.seek(0)
+        return buffer
+
+    @staticmethod
     def load(df, raw_event_id=None):
         """
         Idempotently load events into staging.market_events.
 
-        Uses a single INSERT ... ON CONFLICT (event_id) DO NOTHING, so
-        re-running the same batch (Airflow retry, backfill, manual rerun)
-        never creates duplicates. The database enforces it, instead of a
-        check-then-insert loop that costs one query per row and can race.
+        Two steps in one transaction:
+
+        1. COPY the batch into a temporary table. COPY is PostgreSQL's bulk
+           loader: one streamed command instead of one INSERT per row (or per
+           page of rows), so it scales to large batches.
+        2. INSERT ... SELECT from it with ON CONFLICT (event_id) DO NOTHING.
+           Re-running the same batch (Airflow retry, backfill, manual rerun)
+           never creates duplicates, the database enforces it, and the
+           foreign key to raw.raw_api_events (lineage) is still checked.
+           The statement's row count is exactly the number inserted.
 
         Returns (inserted_count, skipped_count).
         """
@@ -47,16 +69,28 @@ class PostgresLoader:
         session = SessionLocal()
 
         try:
-            stmt = (
-                insert(MarketEvent.__table__)
-                .values(rows)
-                .on_conflict_do_nothing(index_elements=["event_id"])
+            conn = session.connection()
+            conn.exec_driver_sql(
+                "CREATE TEMP TABLE _staging_load "
+                "(LIKE staging.market_events INCLUDING DEFAULTS) ON COMMIT DROP"
             )
 
-            result = session.execute(stmt)
+            # COPY needs the driver's own cursor (psycopg2), inside the same transaction.
+            with conn.connection.dbapi_connection.cursor() as cursor:
+                cursor.copy_expert(
+                    f"COPY _staging_load ({_COLUMN_LIST}) FROM STDIN WITH (FORMAT csv)",
+                    PostgresLoader._to_csv(rows),
+                )
+
+            # Through SQLAlchemy, so a lineage violation raises IntegrityError as before.
+            result = conn.execute(text(
+                f"INSERT INTO staging.market_events ({_COLUMN_LIST}) "  # noqa: S608
+                f"SELECT {_COLUMN_LIST} FROM _staging_load "
+                "ON CONFLICT (event_id) DO NOTHING"
+            ))
+            inserted_count = result.rowcount
             session.commit()
 
-            inserted_count = result.rowcount
             skipped_count = len(rows) - inserted_count
 
             logger.info(

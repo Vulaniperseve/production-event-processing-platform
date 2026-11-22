@@ -278,6 +278,26 @@ push / PR ──► CI: unit · PostgreSQL integration · Spark · Terraform · 
 - **S3 publish tests** (`tests/test_s3_sync.py`): first sync, no-op re-sync, rewritten partitions, dry run, objects outside the prefix untouched, and the empty-layer guard, all against moto.
 - **GitHub Actions** runs six jobs on every push and pull request: unit tests, integration tests against a `postgres:16` service container, Spark tests on Java 17, `terraform fmt` + `validate`, `promtool` checks plus alert-rule unit tests, and lint + security (Ruff, gitleaks, pip-audit, Trivy). Python 3.12 matches the Airflow image.
 
+## Performance
+
+Every stage was benchmarked, the slow ones fixed, and the results checked to be identical. Full method and numbers: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
+
+| What | Before | After |
+|---|---|---|
+| Ingest 10,000 records end to end | 33.2 s | 1.4 s (**24×**) |
+| Validate 10,000 records | 12.6 s | 0.03 s (date parsing fast path, same results as pandas) |
+| Load 50,000 rows into PostgreSQL | 26 s | 3.2 s (`COPY` into a temp table + `INSERT … ON CONFLICT`) |
+| Spark silver / gold, first build | 27.5 s / 12.9 s | 17.3 s / 7.7 s (JVM tuned for small data) |
+| Airflow triggerer / dag-processor, idle | ~90% CPU, 1.1 GB each | ~3% CPU, 200–340 MB |
+| Dashboard, first thing on screen | ~10 s blank | ~2 s |
+
+```bash
+# throwaway PostgreSQL (see Running locally), then:
+DB_HOST=localhost DB_PORT=5433 DB_NAME=pipeline_test DB_USER=postgres DB_PASSWORD=postgres \
+  python -m benchmarks.bench_ingestion --label mine
+python -m benchmarks.bench_ingestion --compare baseline mine
+```
+
 ## Running locally
 
 ```bash
@@ -315,6 +335,7 @@ Problems hit while building this, and how they were solved:
 - **Airflow 3.1.0 scheduler crash loop.** A mapped task (one per symbol) waiting to retry with exponential backoff crashed the scheduler with `'MappedOperator' object has no attribute 'max_retry_delay'`. Traced through the Airflow source to `TaskInstance.next_retry_datetime`. The fix was a fixed retry delay instead of exponential backoff, the stuck task was cleared through the REST API, and `tests/test_dag_settings.py` keeps it from coming back.
 - **A version pin silently broke an Airflow upgrade.** Upgrading to Airflow 3.3.2 (to clear critical CVEs the image scan found) made the database migration fail with `cannot import name 'mapped_column'`. Cause: `requirements.txt` pinned SQLAlchemy 1.4, and pip downgraded Airflow's SQLAlchemy 2.0 without complaint. Fixes: the pins now match the versions the Airflow image ships, so tests run on the same libraries as production, and the Dockerfile installs `apache-airflow==<version>` alongside them, so a conflicting pin fails the build instead of the running system.
 - **Health checks that starved the services they checked.** The triggerer and dag-processor used ~90% CPU and 1.1 GB each while idle. Their Docker health check ran `airflow jobs check`, which boots the whole Airflow CLI and took longer than the check's timeout on this laptop. Docker doesn't kill a timed-out check, so about 20 CLI processes piled up in each container, and after the 3.3.2 upgrade the services never even finished starting. The check is now `airflow/config/job_healthcheck.py`, the same heartbeat query against the metadata database in under a second, and the redundant startup `airflow db check` is skipped. Idle usage dropped to ~3% CPU and 200–340 MB per service.
+- **Noisy benchmarks.** On a busy laptop, identical Spark runs differed by up to 2× (JVM startup ranged from 21 s to 45 s with the same settings), so a single before/after pair proved nothing. The configurations were run alternately, three times each, and only the medians were reported; the tuned setup won every paired run.
 - **Docker Desktop wouldn't start after an unclean shutdown** (stale Unix-socket files that Windows can't delete). `start.bat` moves them aside while Docker isn't running.
 - **Counting duplicates in streaming bars.** A test showed a re-sent tick counted twice in a 5-minute bar, because deduplication happened only at the sink. The fix deduplicates within the watermark before aggregating.
 - **Silent data loss in streaming, found by monitoring.** Kafka originally kept its data inside the container. Recreating the container restarted the topic's offsets at 0, while Spark's checkpoint still pointed to offset 1,560, so Spark skipped every new message ("some data may have been lost") and stored nothing. The lag metric even showed 0, because it clamped negative values. Fixes: Kafka data on a named volume, 7-day retention, the exporter detects offsets going backwards (`KafkaOffsetsReset` alert) and counts those messages as lag. Recovery was safe *because the sinks are idempotent*: resetting Spark's checkpoint and reprocessing the whole topic restored the missing trading day, and already-stored ticks were dropped as duplicates.
@@ -338,4 +359,4 @@ Python · SQL · Prometheus · Grafana · Apache Kafka (KRaft) · Spark Structur
 - [x] Streaming: Kafka / Spark Structured Streaming
 - [x] Monitoring and alerting: Prometheus, Grafana, tested alert rules
 - [x] CI/CD and security: secret, dependency, code and image scanning; gated image publishing
-- [ ] Performance benchmarking
+- [x] Performance benchmarking: measured, fixed and verified (ingestion up to 24× faster)
