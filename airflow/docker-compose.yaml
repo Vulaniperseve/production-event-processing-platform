@@ -338,6 +338,7 @@ services:
     volumes:
       # Code mounted for live reload while developing; the image has a copy too.
       - ../dashboard:/app/dashboard:ro
+      - ../.streamlit:/app/.streamlit:ro
       - ../data/lake:/data/lake:ro
     mem_limit: 512m
     restart: always

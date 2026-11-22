@@ -1,9 +1,11 @@
 [theme]
-base = "light"
-primaryColor = "#2a78d6"
-backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f6f7f9"
-textColor = "#1f2329"
+# "Midnight aurora": deep indigo background, purple accent, teal for success.
+# The animated aurora and card styling live in dashboard/lib/theme.py.
+base = "dark"
+primaryColor = "#7F77DD"
+backgroundColor = "#14122B"
+secondaryBackgroundColor = "#221D47"
+textColor = "#EEEDFE"
 font = "sans serif"
 
 [client]

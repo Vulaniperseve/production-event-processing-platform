@@ -2,16 +2,18 @@
 Plotly figures for the dashboard, with one consistent style.
 
 Colors follow the entity, never its rank: each symbol keeps its color on
-every chart, so AAPL is always the same blue.
+every chart, so AAPL is always the same purple.
 """
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
-INK, MUTED, GRID, BASE = "#1f2329", "#6b6f76", "#eceef1", "#c3c2b7"
-POS, NEG = "#1a7f4b", "#c93636"
+# "Midnight aurora" palette (see dashboard/lib/theme.py): bright on a dark background.
+SERIES = ["#AFA9EC", "#5DCAA5", "#F0997B", "#FAC775", "#ED93B1", "#85B7EB", "#97C459", "#F09595"]
+INK, MUTED, GRID, BASE = "#EEEDFE", "#A9A5D6", "rgba(127,119,221,0.16)", "rgba(127,119,221,0.40)"
+POS, NEG, NEUTRAL, WARN = "#5DCAA5", "#F09595", "rgba(169,165,214,0.45)", "#FAC775"
+DIVERGING = [[0, "#E24B4A"], [0.5, "#2B2557"], [1, "#1D9E75"]]
 
 
 def symbol_colors(symbols):
@@ -29,7 +31,7 @@ def _style(fig, height=320, legend=True, yformat=None):
         showlegend=legend,
         legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="left", x=0,
                     font=dict(color=MUTED, size=12), bgcolor="rgba(0,0,0,0)"),
-        hoverlabel=dict(bgcolor="white", font_size=12),
+        hoverlabel=dict(bgcolor="#221D47", bordercolor="#534AB7", font=dict(color="#FFFFFF", size=12)),
     )
     fig.update_xaxes(showgrid=False, linecolor=BASE, tickfont=dict(color=MUTED))
     fig.update_yaxes(gridcolor=GRID, zeroline=False, tickfont=dict(color=MUTED), tickformat=yformat)
@@ -41,9 +43,9 @@ def price_chart(df, color):
     fig.add_trace(go.Scatter(x=df["trade_date"], y=df["close_price"], name="Close",
                              line=dict(color=color, width=2)))
     fig.add_trace(go.Scatter(x=df["trade_date"], y=df["sma_5"], name="5-day average",
-                             line=dict(color="#eb6834", width=1.5, dash="dash")))
+                             line=dict(color="#FAC775", width=1.5, dash="dash")))
     fig.add_trace(go.Scatter(x=df["trade_date"], y=df["sma_20"], name="20-day average",
-                             line=dict(color="#1baf7a", width=1.5, dash="dot")))
+                             line=dict(color="#85B7EB", width=1.5, dash="dot")))
     fig.update_traces(hovertemplate="%{y:$,.2f}")
     return _style(fig, 340, yformat="$,.0f")
 
@@ -51,7 +53,7 @@ def price_chart(df, color):
 def drawdown_chart(df, color):
     fig = go.Figure(go.Scatter(
         x=df["trade_date"], y=df["drawdown"], name="Drawdown", fill="tozeroy",
-        line=dict(color=NEG, width=1.5), fillcolor="rgba(201,54,54,0.12)",
+        line=dict(color=NEG, width=1.5), fillcolor="rgba(240,149,149,0.16)",
         hovertemplate="%{y:.1%} below peak",
     ))
     return _style(fig, 180, legend=False, yformat=".0%")
@@ -90,7 +92,7 @@ def monthly_heatmap(monthly):
     limit = float(np.nanmax(np.abs(pivot.values))) if pivot.size else 0.1
     fig = go.Figure(go.Heatmap(
         z=pivot.values, x=list(pivot.columns), y=list(pivot.index), text=text.values,
-        texttemplate="%{text}", colorscale=[[0, "#c93636"], [0.5, "#f0efec"], [1, "#2a78d6"]],
+        texttemplate="%{text}", textfont=dict(color="#FFFFFF"), colorscale=DIVERGING,
         zmin=-limit, zmax=limit, showscale=False, xgap=3, ygap=3,
         hovertemplate="%{y} %{x}: %{z:+.2%}<extra></extra>",
     ))
@@ -110,7 +112,7 @@ def correlation_heatmap(corr):
         matrix.loc[row["symbol_b"], row["symbol_a"]] = row["return_correlation"]
     fig = go.Figure(go.Heatmap(
         z=matrix.values, x=symbols, y=symbols, text=matrix.map(lambda v: f"{v:.2f}").values,
-        texttemplate="%{text}", colorscale=[[0, "#c93636"], [0.5, "#f0efec"], [1, "#2a78d6"]],
+        texttemplate="%{text}", textfont=dict(color="#FFFFFF"), colorscale=DIVERGING,
         zmin=-1, zmax=1, showscale=False, xgap=3, ygap=3,
         hovertemplate="%{y} vs %{x}: %{z:.3f}<extra></extra>",
     ))
@@ -129,8 +131,8 @@ def health_chart(health):
     daily["run_date"] = pd.to_datetime(daily["run_date"]).dt.strftime("%d %b")   # run days only
     fig = go.Figure()
     for col, name, color in [("new_events_loaded", "New events loaded", POS),
-                             ("already_stored", "Already stored (idempotent skip)", "#b4b2a9"),
-                             ("records_quarantined", "Quarantined", "#eda100")]:
+                             ("already_stored", "Already stored (idempotent skip)", NEUTRAL),
+                             ("records_quarantined", "Quarantined", WARN)]:
         fig.add_trace(go.Bar(x=daily["run_date"], y=daily[col], name=name, marker_color=color,
                              hovertemplate="%{y:,}"))
     fig.update_layout(barmode="stack", bargap=0.45)
@@ -154,8 +156,8 @@ def candlestick_chart(bars, symbol):
 def throughput_chart(df):
     fig = go.Figure()
     for col, name, color in [("new_ticks", "New ticks stored", POS),
-                             ("duplicates", "Duplicates dropped", "#b4b2a9"),
-                             ("rejected", "Rejected", "#eda100")]:
+                             ("duplicates", "Duplicates dropped", NEUTRAL),
+                             ("rejected", "Rejected", WARN)]:
         fig.add_trace(go.Bar(x=df["minute"], y=df[col], name=name, marker_color=color,
                              hovertemplate="%{y:,}"))
     fig.update_layout(barmode="stack", bargap=0.3)

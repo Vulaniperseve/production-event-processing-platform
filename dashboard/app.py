@@ -27,19 +27,9 @@ st.set_page_config(
     layout="wide",
 )
 
-st.markdown(
-    """
-    <style>
-      .block-container {padding-top: 2.2rem; max-width: 1400px;}
-      [data-testid="stMetric"] {background: #f6f7f9; border-radius: 12px; padding: 12px 14px;}
-      [data-testid="stMetricLabel"] p {font-size: 13px; color: #6b6f76;}
-      h1 {font-weight: 650; letter-spacing: -0.01em;}
-      /* The live view refreshes every few seconds: don't fade it while it does. */
-      [data-stale="true"] {opacity: 1 !important; transition: none !important;}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+from dashboard.lib import theme  # noqa: E402
+
+st.markdown(theme.CSS, unsafe_allow_html=True)
 
 pages = [
     st.Page(str(ROOT / "dashboard/views/pipeline.py"), title="Pipeline",
@@ -54,8 +44,7 @@ pages = [
 nav = st.navigation(pages)
 
 with st.sidebar:
-    st.markdown("### Event Processing Platform")
-    st.caption("Market data: API → PostgreSQL → Spark data lake")
+    st.html(theme.BRAND)
     st.divider()
     airflow_ui = os.getenv("AIRFLOW_UI_URL", "http://localhost:8080")
     st.page_link(airflow_ui, label="Open Airflow", icon=":material/open_in_new:")
