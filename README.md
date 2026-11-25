@@ -360,3 +360,7 @@ Python · SQL · Prometheus · Grafana · Apache Kafka (KRaft) · Spark Structur
 - [x] Monitoring and alerting: Prometheus, Grafana, tested alert rules
 - [x] CI/CD and security: secret, dependency, code and image scanning; gated image publishing
 - [x] Performance benchmarking: measured, fixed and verified (ingestion up to 24× faster)
+
+## Author
+
+**Vulani Makwakwa** · B.Eng.Tech Computer Engineering (CPUT, 2026) · Cape Town · [GitHub](https://github.com/Vulaniperseve) · [LinkedIn](https://www.linkedin.com/in/vulani-makwakwa-24229a23a/)
